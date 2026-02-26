@@ -63,10 +63,12 @@ class Hosted implements MethodInterface, LivewireMethodInterface
 
     public function paymentResponse(PaymentResponseRequest $request): RedirectResponse
     {
-        $purchaseId = $request->input('purchase_id') ?? $request->query('purchase_id') ?? $request->input('id') ?? $request->query('id');
+        // CHIP *_redirect URLs do not include purchase id; only success_callback (webhook) sends JSON with "id".
+        // We store chip_purchase_id when creating the purchase and use it here for the redirect return.
+        $purchaseId = $this->driver->payment_hash->data->chip_purchase_id ?? null;
 
         if (empty($purchaseId)) {
-            $this->driver->sendFailureMail('Missing purchase_id from CHIP.');
+            $this->driver->sendFailureMail('Missing chip_purchase_id in payment hash (CHIP redirect does not pass id).');
             throw new PaymentFailed('Invalid return from payment gateway. Please contact support.');
         }
 
@@ -134,7 +136,11 @@ class Hosted implements MethodInterface, LivewireMethodInterface
         if ($response->successful()) {
             $body = $response->json();
             $checkoutUrl = $body['checkout_url'] ?? null;
+            $purchaseId = $body['id'] ?? null;
             if ($checkoutUrl) {
+                if ($purchaseId) {
+                    $this->driver->payment_hash->withData('chip_purchase_id', $purchaseId);
+                }
                 $data['redirect_url'] = $checkoutUrl;
                 $data['gateway'] = $this->driver;
                 return $data;
