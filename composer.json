@@ -122,7 +122,6 @@
     },
     "require-dev": {
         "barryvdh/laravel-debugbar": "^3.6",
-        "cweagans/composer-patches": "^1.7",
         "barryvdh/laravel-ide-helper": "^3.0",
         "brianium/paratest": "^7",
         "filp/whoops": "^2.7",
@@ -156,11 +155,6 @@
         }
     },
     "extra": {
-        "patches": {
-            "sabberworm/php-css-parser": {
-                "Fix Rule double-load (Safe class_alias redeclare)": "patches/sabberworm-php-css-parser-rule-redeclare.patch"
-            }
-        },
         "laravel": {
             "dont-discover": []
         },
@@ -209,7 +203,6 @@
         "sort-packages": true,
         "optimize-autoloader": true,
         "allow-plugins": {
-            "cweagans/composer-patches": true,
             "php-http/discovery": true,
             "wikimedia/composer-merge-plugin": true
         }
