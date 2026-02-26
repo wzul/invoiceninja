@@ -1,6 +1,9 @@
-@extends('portal.ninja2020.layout.payments', ['gateway_title' => 'CHIP', 'card_title' => 'CHIP'])
+{{-- Fragment for Livewire/Flow2: do not extend layout.payments or the full layout is nested inside the invoice page (looped/duplicate structure). --}}
+<div class="rounded-lg border bg-card text-card-foreground shadow-sm overflow-hidden py-5 bg-white sm:gap-4" id="chip-hosted-payment">
+    @component('portal.ninja2020.components.general.card-element', ['title' => ctrans('texts.payment_type')])
+        CHIP
+    @endcomponent
 
-@section('gateway_content')
     <div class="flex flex-col items-center justify-center py-8">
         <p class="text-gray-600 mb-4">{{ ctrans('texts.payment_processing') }}</p>
         @if(!empty($redirect_to_gateway_url ?? null))
@@ -8,4 +11,4 @@
         @endif
     </div>
     @include('portal.ninja2020.gateways.includes.payment_details')
-@endsection
+</div>
