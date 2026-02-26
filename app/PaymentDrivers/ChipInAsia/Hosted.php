@@ -318,6 +318,7 @@ class Hosted implements MethodInterface, LivewireMethodInterface
             $this->driver->client->company,
         );
 
-        throw new PaymentFailed($message);
+        // Show generic message to user (same as Stripe, Razorpay, etc.); raw CHIP message is in mail/logs above.
+        throw new PaymentFailed(ctrans('texts.payment_error'), 500);
     }
 }
