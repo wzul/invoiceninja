@@ -1,0 +1,10 @@
+--- a/src/Rule/Rule.php
++++ b/src/Rule/Rule.php
+@@ -11,4 +11,6 @@
+ /**
+  * @deprecated in v9.2, will be removed in v10.0.  Use `Property\Declaration` instead, which is a direct replacement.
+  */
+-class_alias(Declaration::class, Rule::class);
++if (!class_exists(__NAMESPACE__ . '\\Rule', false)) {
++    class_alias(Declaration::class, Rule::class);
++}
