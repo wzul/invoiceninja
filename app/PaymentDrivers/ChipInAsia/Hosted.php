@@ -58,6 +58,7 @@ class Hosted implements MethodInterface, LivewireMethodInterface
      */
     public function paymentView(array $data): View|RedirectResponse
     {
+        $data['gateway'] = $this->driver;
         $data['redirect_to_gateway_url'] = route('client.payments.redirect_to_gateway', [
             'payment_hash' => $data['payment_hash'],
             'company_gateway_id' => $this->driver->company_gateway->id,
