@@ -84,6 +84,21 @@ class ChipInAsiaPaymentDriver extends BaseDriver
     }
 
     /**
+     * Do not create a CHIP purchase here; return redirect_to_gateway_url so the Livewire view
+     * shows a link. Purchase is created only when the user clicks (redirectToGateway).
+     */
+    public function processPaymentViewData(array $data): array
+    {
+        $data['redirect_to_gateway_url'] = route('client.payments.redirect_to_gateway', [
+            'payment_hash' => $this->payment_hash->hash,
+            'company_gateway_id' => $this->company_gateway->id,
+            'payment_method_id' => $data['payment_method_id'] ?? GatewayType::HOSTED_PAGE,
+        ]);
+
+        return $data;
+    }
+
+    /**
      * Refund a CHIP payment via POST /purchases/{id}/refund/
      * Amount in minor units (cents); omit for full refund.
      *
