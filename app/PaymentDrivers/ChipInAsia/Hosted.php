@@ -85,7 +85,10 @@ class Hosted implements MethodInterface, LivewireMethodInterface
             return $this->processSuccessfulPayment($purchase);
         }
 
-        $message = $purchase['transaction_data']['attempts'][0]['error']['message'] ?? 'Payment was not completed.';
+        $message = 'Payment was not completed.';
+        if (isset($purchase['transaction_data']['attempts'][0]['error']['message'])) {
+            $message = $purchase['transaction_data']['attempts'][0]['error']['message'];
+        }
         $this->processUnsuccessfulPayment($message, $purchaseId);
     }
 
