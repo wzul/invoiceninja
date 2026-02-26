@@ -252,8 +252,8 @@ class Gateway extends StaticModel
                 ]; //Blockonomics
             case 67:
                 return [
-                    GatewayType::HOSTED_PAGE => ['refund' => true, 'token_billing' => false, 'webhooks' => [' ']],
-                ]; //CHIP
+                    GatewayType::HOSTED_PAGE => ['refund' => true, 'token_billing' => false, 'webhooks' => []],
+                ]; //CHIP — payment confirmation via success_callback URL (no merchant webhook config)
             default:
                 return [];
         }
