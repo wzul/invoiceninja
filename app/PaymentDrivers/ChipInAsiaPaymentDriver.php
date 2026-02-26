@@ -86,9 +86,11 @@ class ChipInAsiaPaymentDriver extends BaseDriver
     /**
      * Do not create a CHIP purchase here; return redirect_to_gateway_url so the Livewire view
      * shows a link. Purchase is created only when the user clicks (redirectToGateway).
+     * Include gateway so the payments layout (required-client-info) has $gateway.
      */
     public function processPaymentViewData(array $data): array
     {
+        $data['gateway'] = $this;
         $data['redirect_to_gateway_url'] = route('client.payments.redirect_to_gateway', [
             'payment_hash' => $this->payment_hash->hash,
             'company_gateway_id' => $this->company_gateway->id,
