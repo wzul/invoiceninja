@@ -20,12 +20,13 @@ use App\Models\SystemLog;
 use App\PaymentDrivers\ChipInAsia\Hosted;
 use App\Utils\Traits\MakesHash;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Http;
 
 class ChipInAsiaPaymentDriver extends BaseDriver
 {
     use MakesHash;
 
-    public $refundable = false;
+    public $refundable = true;
 
     public $token_billing = false;
 
@@ -82,7 +83,90 @@ class ChipInAsiaPaymentDriver extends BaseDriver
         return $this->payment_method->paymentResponse($request);
     }
 
-    public function refund(Payment $payment, $amount, $return_client_response = false) {}
+    /**
+     * Refund a CHIP payment via POST /purchases/{id}/refund/
+     * Amount in minor units (cents); omit for full refund.
+     *
+     * @return array{transaction_reference: string|null, transaction_response: string, success: bool, description: string, code: int|string, amount?: float}
+     */
+    public function refund(Payment $payment, $amount, $return_client_response = false): array
+    {
+        $this->init();
+        $purchaseId = $payment->transaction_reference;
+        if (empty($purchaseId)) {
+            SystemLogger::dispatch(
+                'CHIP refund: missing transaction_reference (purchase id) on payment',
+                SystemLog::CATEGORY_GATEWAY_RESPONSE,
+                SystemLog::EVENT_GATEWAY_FAILURE,
+                SystemLog::TYPE_CHIPINASIA,
+                $this->client,
+                $this->client->company,
+            );
+
+            return [
+                'transaction_reference' => null,
+                'transaction_response' => '',
+                'success' => false,
+                'description' => 'Missing CHIP purchase id on payment.',
+                'code' => 422,
+            ];
+        }
+
+        $url = 'https://gate.chip-in.asia/api/v1/purchases/' . $purchaseId . '/refund/';
+        $body = [];
+        if ($amount > 0) {
+            $body['amount'] = (int) round($amount * 100);
+        }
+
+        $response = Http::withToken($this->company_gateway->getConfigField('apiKey'))
+            ->acceptJson()
+            ->timeout(30)
+            ->post($url, $body);
+
+        if ($response->successful()) {
+            $data = $response->json();
+            SystemLogger::dispatch(
+                ['server_response' => $data, 'payment_id' => $payment->id],
+                SystemLog::CATEGORY_GATEWAY_RESPONSE,
+                SystemLog::EVENT_GATEWAY_SUCCESS,
+                SystemLog::TYPE_CHIPINASIA,
+                $this->client,
+                $this->client->company,
+            );
+            // CHIP response: Payment object with id, payment.amount (minor units), payment.description, status
+            $refundAmount = isset($data['payment']['amount'])
+                ? (float) $data['payment']['amount'] / 100
+                : $amount;
+
+            return [
+                'transaction_reference' => $data['id'] ?? $purchaseId,
+                'transaction_response' => json_encode($data),
+                'success' => true,
+                'description' => $data['payment']['description'] ?? 'Refunded',
+                'code' => 200,
+                'amount' => $refundAmount,
+            ];
+        }
+
+        $errorBody = $response->json();
+        $description = $errorBody['__all__']['message'] ?? $errorBody['message'] ?? $response->body() ?: 'Refund failed';
+        SystemLogger::dispatch(
+            ['server_response' => $errorBody, 'payment_id' => $payment->id],
+            SystemLog::CATEGORY_GATEWAY_RESPONSE,
+            SystemLog::EVENT_GATEWAY_FAILURE,
+            SystemLog::TYPE_CHIPINASIA,
+            $this->client,
+            $this->client->company,
+        );
+
+        return [
+            'transaction_reference' => null,
+            'transaction_response' => json_encode($errorBody),
+            'success' => false,
+            'description' => $description,
+            'code' => $response->status(),
+        ];
+    }
 
     public function tokenBilling(\App\Models\ClientGatewayToken $cgt, PaymentHash $payment_hash) {}
 
