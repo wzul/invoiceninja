@@ -42,6 +42,7 @@ class Hosted implements MethodInterface, LivewireMethodInterface
 
     public function authorizeView(array $data): View
     {
+        $data['gateway'] = $this->driver;
         return render('gateways.chipinasia.hosted.authorize', $data);
     }
 
