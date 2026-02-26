@@ -29,6 +29,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Contracts\View\Factory;
+use App\Exceptions\PaymentFailed;
 use App\PaymentDrivers\Stripe\BankTransfer;
 use App\Services\ClientPortal\InstantPayment;
 use App\Services\Subscription\SubscriptionService;
@@ -167,6 +168,52 @@ class PaymentController extends Controller
 
 
         return (new InstantPayment($request))->run();
+    }
+
+    /**
+     * Create the gateway checkout session and redirect to the gateway URL. Gateway-agnostic:
+     * any driver whose payment method returns a redirect_url from paymentData() can use this.
+     * Used by gateways that defer session creation until the user clicks "Pay" (e.g. CHIP) to
+     * avoid creating a new checkout on every page load/refresh.
+     */
+    public function redirectToGateway(Request $request): \Illuminate\Http\RedirectResponse
+    {
+        $request->validate([
+            'payment_hash' => ['required', 'string'],
+            'company_gateway_id' => ['required'],
+            'payment_method_id' => ['required'],
+        ]);
+
+        $payment_hash = PaymentHash::with('fee_invoice')->where('hash', $request->input('payment_hash'))->firstOrFail();
+        $client = $payment_hash->fee_invoice?->client ?? auth()->guard('contact')->user()->client;
+        $gateway = CompanyGateway::findOrFail($request->input('company_gateway_id'));
+
+        $driver = $gateway
+            ->driver($client)
+            ->setPaymentMethod($request->input('payment_method_id'))
+            ->setPaymentHash($payment_hash)
+            ->checkRequirements();
+
+        $data = [
+            'payment_hash' => $payment_hash->hash,
+            'payment_method_id' => $request->input('payment_method_id'),
+            'total' => $payment_hash->data->total ?? null,
+            'invoices' => $payment_hash->data->invoices ?? [],
+            'amount_with_fee' => $payment_hash->data->amount_with_fee ?? null,
+            'client' => $client,
+        ];
+
+        try {
+            $result = $driver->payment_method->paymentData($data);
+        } catch (PaymentFailed $e) {
+            return redirect()->route('client.payments.index')->with('message', $e->getMessage());
+        }
+
+        if (empty($result['redirect_url'])) {
+            return redirect()->route('client.payments.index')->with('message', ctrans('texts.payment_processing_error'));
+        }
+
+        return redirect()->away($result['redirect_url']);
     }
 
     public function response(PaymentResponseRequest $request)

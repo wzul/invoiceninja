@@ -50,13 +50,19 @@ class Hosted implements MethodInterface, LivewireMethodInterface
         return redirect()->route('client.payment_methods.index');
     }
 
+    /**
+     * Show the CHIP pay page with a "Continue to CHIP" link. We do NOT create the purchase here:
+     * CHIP creates a purchase per API call, so creating on page load would create a new purchase on every
+     * load/refresh. Instead we pass redirect_to_gateway_url; when the user clicks it we create the
+     * purchase and redirect (see PaymentController::redirectToGateway).
+     */
     public function paymentView(array $data): View|RedirectResponse
     {
-        $data = $this->paymentData($data);
-
-        if (! empty($data['redirect_url'])) {
-            return redirect()->away($data['redirect_url']);
-        }
+        $data['redirect_to_gateway_url'] = route('client.payments.redirect_to_gateway', [
+            'payment_hash' => $data['payment_hash'],
+            'company_gateway_id' => $this->driver->company_gateway->id,
+            'payment_method_id' => $data['payment_method_id'],
+        ]);
 
         return render('gateways.chipinasia.hosted.pay', $data);
     }
