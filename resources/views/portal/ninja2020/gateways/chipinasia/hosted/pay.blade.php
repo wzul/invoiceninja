@@ -2,9 +2,8 @@
 
 @section('gateway_content')
     <div class="flex flex-col items-center justify-center py-8">
-        <p class="text-gray-600 mb-4">{{ ctrans('texts.payment_processing') }}</p>
         @if(!empty($redirect_to_gateway_url ?? null))
-            <a href="{{ $redirect_to_gateway_url }}" class="button primary">{{ ctrans('texts.click_here') }}</a>
+            <a href="{{ $redirect_to_gateway_url }}" class="button button-primary bg-primary inline-block rounded py-3 px-4 text-sm text-white">{{ ctrans('texts.pay_now') }}</a>
         @endif
     </div>
     @include('portal.ninja2020.gateways.includes.payment_details')
