@@ -134,13 +134,6 @@ class Hosted implements MethodInterface, LivewireMethodInterface
             'currency' => 'MYR',
         ];
 
-        // Request recurring token when token_billing is enabled so we can charge later (save card).
-        if ($this->driver->company_gateway->token_billing && $this->driver->company_gateway->token_billing !== 'off') {
-            $purchasePayload['force_recurring'] = true;
-            $purchasePayload['payment_method_whitelist'] = ['visa', 'mastercard', 'maestro'];
-            $this->driver->payment_hash->withData('request_recurring_token', true);
-        }
-
         $payload = [
             'brand_id' => $this->driver->company_gateway->getConfigField('brandId'),
             'client' => [
@@ -155,6 +148,13 @@ class Hosted implements MethodInterface, LivewireMethodInterface
             'cancel_redirect' => $returnUrl,
             'success_callback' => $this->driver->genericWebhookUrl(),
         ];
+
+        // Request recurring token when token_billing is enabled so we can charge later (save card).
+        if ($this->driver->company_gateway->token_billing && $this->driver->company_gateway->token_billing !== 'off') {
+            $payload['force_recurring'] = true;
+            $payload['payment_method_whitelist'] = ['visa', 'mastercard', 'maestro'];
+            $this->driver->payment_hash->withData('request_recurring_token', true);
+        }
 
         $response = $this->chipRequest('POST', '/purchases/', $payload);
 
