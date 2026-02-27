@@ -210,7 +210,7 @@ class PaymentController extends Controller
         }
 
         if (empty($result['redirect_url'])) {
-            return redirect()->route('client.payments.index')->with('message', ctrans('texts.payment_processing_error'));
+            return redirect()->route('client.payments.index')->with('message', ctrans('texts.payment_error'));
         }
 
         return redirect()->away($result['redirect_url']);
