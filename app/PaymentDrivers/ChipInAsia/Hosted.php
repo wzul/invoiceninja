@@ -52,21 +52,26 @@ class Hosted implements MethodInterface, LivewireMethodInterface
     }
 
     /**
-     * Show the CHIP pay page with a "Continue to CHIP" link. We do NOT create the purchase here:
-     * CHIP creates a purchase per API call, so creating on page load would create a new purchase on every
-     * load/refresh. Instead we pass redirect_to_gateway_url; when the user clicks it we create the
-     * purchase and redirect (see PaymentController::redirectToGateway).
+     * When the gateway does NOT require "Always show required fields form", redirect immediately to the
+     * gateway so the user skips the intermediate "Pay Now" page. When that option is enabled, show the
+     * pay view so the payments layout can display the required-client-info form; the user fills it and
+     * then clicks "Pay Now" to go to CHIP. We do NOT create the CHIP purchase here in either case.
      */
     public function paymentView(array $data): View|RedirectResponse
     {
         $data['gateway'] = $this->driver;
-        $data['redirect_to_gateway_url'] = route('client.payments.redirect_to_gateway', [
+        $redirect_to_gateway_url = route('client.payments.redirect_to_gateway', [
             'payment_hash' => $data['payment_hash'],
             'company_gateway_id' => $this->driver->company_gateway->id,
             'payment_method_id' => $data['payment_method_id'],
         ]);
 
-        return render('gateways.chipinasia.hosted.pay', $data);
+        if ($this->driver->company_gateway->always_show_required_fields ?? false) {
+            $data['redirect_to_gateway_url'] = $redirect_to_gateway_url;
+            return render('gateways.chipinasia.hosted.pay', $data);
+        }
+
+        return redirect()->to($redirect_to_gateway_url);
     }
 
     public function paymentResponse(PaymentResponseRequest $request): RedirectResponse
