@@ -149,12 +149,17 @@ class Hosted implements MethodInterface, LivewireMethodInterface
             'success_callback' => $this->driver->genericWebhookUrl(),
         ];
 
-        // Request recurring token when token_billing is enabled so we can charge later (save card).
-        if ($this->driver->company_gateway->token_billing && $this->driver->company_gateway->token_billing !== 'off') {
+        // Token billing: "always" sends force_recurring + whitelist. "off" sends nothing and we never store token.
+        // For always, optin, optout we set request_recurring_token so we store the token when CHIP returns it; for off we do not.
+        $tokenBilling = $this->driver->company_gateway->token_billing ?? 'off';
+        if ($tokenBilling === 'always') {
             $payload['force_recurring'] = true;
             $payload['payment_method_whitelist'] = ['visa', 'mastercard', 'maestro'];
+        }
+        if (in_array($tokenBilling, ['always', 'optin', 'optout'], true)) {
             $this->driver->payment_hash->withData('request_recurring_token', true);
         }
+        // off: do not set force_recurring, payment_method_whitelist, or request_recurring_token
 
         $response = $this->chipRequest('POST', '/purchases/', $payload);
 
