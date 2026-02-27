@@ -119,6 +119,9 @@ class Hosted implements MethodInterface, LivewireMethodInterface
 
         $contact = $this->driver->getContact();
         $client = $this->driver->client;
+
+        $this->ensureChipRequiredFields($contact, $client);
+
         $amountWithFee = (float) $this->driver->payment_hash->data->amount_with_fee;
 
         // CHIP only supports MYR
@@ -248,6 +251,8 @@ class Hosted implements MethodInterface, LivewireMethodInterface
         $contact = $this->driver->getContact();
         $client = $this->driver->client;
 
+        $this->ensureChipRequiredFields($contact, $client);
+
         $payload = [
             'brand_id' => $this->driver->company_gateway->getConfigField('brandId'),
             'client' => [
@@ -282,6 +287,22 @@ class Hosted implements MethodInterface, LivewireMethodInterface
         }
 
         return $purchaseId;
+    }
+
+    /**
+     * CHIP requires a valid contact email. Ensures it is set before creating a purchase.
+     *
+     * @param \App\Models\Contact|null $contact
+     * @param \App\Models\Client $client
+     * @throws PaymentFailed
+     */
+    private function ensureChipRequiredFields($contact, $client): void
+    {
+        $email = $contact && $contact->email ? $contact->email : $client->contacts()->first()?->email ?? '';
+        $email = trim((string) $email);
+        if ($email === '' || ! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            throw new PaymentFailed(ctrans('texts.provide_email'));
+        }
     }
 
     /**
@@ -443,10 +464,21 @@ class Hosted implements MethodInterface, LivewireMethodInterface
         if (isset($extra['cardholder_name'])) {
             $paymentMeta->cardholder_name = $extra['cardholder_name'];
         }
-        // Card brand/scheme for display on payment method detail (e.g. Visa, Mastercard).
-        $scheme = $extra['scheme'] ?? $extra['brand'] ?? $extra['card_scheme'] ?? null;
-        if (is_string($scheme) && $scheme !== '') {
-            $paymentMeta->brand = ucfirst(strtolower($scheme));
+        // brand: card network (e.g. Visa, Mastercard). CHIP sends card_brand; fallback to transaction_data.payment_method.
+        $brand = $extra['card_brand'] ?? $extra['card_scheme']
+            ?? $purchase['transaction_data']['payment_method'] ?? null;
+        if (is_string($brand) && $brand !== '') {
+            $paymentMeta->brand = ucfirst(strtolower($brand));
+        }
+        // scheme: card type (debit/credit). CHIP sends card_type.
+        if (isset($extra['card_type']) && is_string($extra['card_type']) && $extra['card_type'] !== '') {
+            $paymentMeta->scheme = ucfirst(strtolower($extra['card_type']));
+        }
+        if (isset($extra['expiry_month'])) {
+            $paymentMeta->exp_month = (int) $extra['expiry_month'];
+        }
+        if (isset($extra['expiry_year'])) {
+            $paymentMeta->exp_year = (int) $extra['expiry_year'];
         }
 
         $this->driver->storeGatewayToken(

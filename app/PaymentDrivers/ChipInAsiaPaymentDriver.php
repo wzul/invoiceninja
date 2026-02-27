@@ -43,6 +43,19 @@ class ChipInAsiaPaymentDriver extends BaseDriver
 
     public const SYSTEM_LOG_TYPE = SystemLog::TYPE_CHIPINASIA;
 
+    /**
+     * Mandatory fields required by CHIP (e.g. email for client object).
+     * Used by the required-client-info form on the payment layout.
+     *
+     * @return array<int, array{name: string, label: string, type: string, validation: string}>
+     */
+    public function getClientRequiredFields(): array
+    {
+        return [
+            ['name' => 'contact_email', 'label' => ctrans('texts.email'), 'type' => 'text', 'validation' => 'required,email:rfc'],
+        ];
+    }
+
     public function init(): self
     {
         return $this;
