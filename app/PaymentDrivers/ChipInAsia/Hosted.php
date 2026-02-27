@@ -436,12 +436,17 @@ class Hosted implements MethodInterface, LivewireMethodInterface
     private function storeRecurringToken(string $purchaseId, array $purchase): void
     {
         $extra = $purchase['transaction_data']['extra'] ?? $purchase['transaction_data']['attempts'][0]['extra'] ?? [];
-        $paymentMeta = [];
+        $paymentMeta = new \stdClass();
         if (isset($extra['masked_pan'])) {
-            $paymentMeta['last4'] = substr(preg_replace('/\s/', '', $extra['masked_pan']), -4);
+            $paymentMeta->last4 = substr(preg_replace('/\s/', '', $extra['masked_pan']), -4);
         }
         if (isset($extra['cardholder_name'])) {
-            $paymentMeta['cardholder_name'] = $extra['cardholder_name'];
+            $paymentMeta->cardholder_name = $extra['cardholder_name'];
+        }
+        // Card brand/scheme for display on payment method detail (e.g. Visa, Mastercard).
+        $scheme = $extra['scheme'] ?? $extra['brand'] ?? $extra['card_scheme'] ?? null;
+        if (is_string($scheme) && $scheme !== '') {
+            $paymentMeta->brand = ucfirst(strtolower($scheme));
         }
 
         $this->driver->storeGatewayToken(
