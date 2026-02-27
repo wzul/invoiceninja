@@ -124,6 +124,23 @@ class Hosted implements MethodInterface, LivewireMethodInterface
         // CHIP only supports MYR
         $amountCents = (int) round($amountWithFee * 100);
 
+        $purchasePayload = [
+            'products' => [
+                [
+                    'name' => $this->driver->getDescription(true),
+                    'price' => $amountCents,
+                ],
+            ],
+            'currency' => 'MYR',
+        ];
+
+        // Request recurring token when token_billing is enabled so we can charge later (save card).
+        if ($this->driver->company_gateway->token_billing && $this->driver->company_gateway->token_billing !== 'off') {
+            $purchasePayload['force_recurring'] = true;
+            $purchasePayload['payment_method_whitelist'] = ['visa', 'mastercard', 'maestro'];
+            $this->driver->payment_hash->withData('request_recurring_token', true);
+        }
+
         $payload = [
             'brand_id' => $this->driver->company_gateway->getConfigField('brandId'),
             'client' => [
@@ -131,15 +148,7 @@ class Hosted implements MethodInterface, LivewireMethodInterface
                 'full_name' => trim(($contact ? $contact->first_name . ' ' . $contact->last_name : '') ?: $client->name ?? ''),
                 'phone' => $client->phone ?? '',
             ],
-            'purchase' => [
-                'products' => [
-                    [
-                        'name' => $this->driver->getDescription(true),
-                        'price' => $amountCents,
-                    ],
-                ],
-                'currency' => 'MYR',
-            ],
+            'purchase' => $purchasePayload,
             'reference' => $this->driver->payment_hash->hash,
             'success_redirect' => $returnUrl,
             'failure_redirect' => $returnUrl,
@@ -171,6 +180,7 @@ class Hosted implements MethodInterface, LivewireMethodInterface
 
     /**
      * Call CHIP API with Bearer token.
+     * Payload keys with empty string values are omitted (CHIP should not receive them).
      */
     private function chipRequest(string $method, string $path, array $body = []): \Illuminate\Http\Client\Response
     {
@@ -183,7 +193,27 @@ class Hosted implements MethodInterface, LivewireMethodInterface
             return $request->get($url);
         }
 
-        return $request->post($url, $body);
+        return $request->post($url, $this->removeEmptyStrings($body));
+    }
+
+    /**
+     * Recursively remove keys whose value is an empty string so they are not sent to CHIP.
+     *
+     * @param array<string, mixed> $arr
+     * @return array<string, mixed>
+     */
+    private function removeEmptyStrings(array $arr): array
+    {
+        $result = [];
+        foreach ($arr as $key => $value) {
+            if (is_array($value)) {
+                $filtered = $this->removeEmptyStrings($value);
+                $result[$key] = $filtered;
+            } elseif ($value !== '') {
+                $result[$key] = $value;
+            }
+        }
+        return $result;
     }
 
     /**
@@ -195,6 +225,76 @@ class Hosted implements MethodInterface, LivewireMethodInterface
 
         if (! $response->successful()) {
             return null;
+        }
+
+        return $response->json();
+    }
+
+    /**
+     * Create a CHIP purchase for token billing (no redirect). Used to charge a saved card via POST .../charge/.
+     *
+     * @return string the new purchase id
+     */
+    public function createPurchaseForTokenCharge(): string
+    {
+        $payment_hash = $this->driver->payment_hash;
+        $amountWithFee = (float) $payment_hash->data->amount_with_fee;
+        $amountCents = (int) round($amountWithFee * 100);
+        $contact = $this->driver->getContact();
+        $client = $this->driver->client;
+
+        $payload = [
+            'brand_id' => $this->driver->company_gateway->getConfigField('brandId'),
+            'client' => [
+                'email' => $contact && $contact->email ? $contact->email : $client->contacts()->first()?->email ?? '',
+                'full_name' => trim(($contact ? $contact->first_name . ' ' . $contact->last_name : '') ?: $client->name ?? ''),
+                'phone' => $client->phone ?? '',
+            ],
+            'purchase' => [
+                'products' => [
+                    [
+                        'name' => $this->driver->getDescription(true),
+                        'price' => $amountCents,
+                    ],
+                ],
+                'currency' => 'MYR',
+            ],
+            'reference' => $payment_hash->hash,
+            'success_callback' => $this->driver->genericWebhookUrl(),
+        ];
+
+        $response = $this->chipRequest('POST', '/purchases/', $payload);
+        if (! $response->successful()) {
+            $errorBody = $response->json();
+            $error = $errorBody['__all__']['message'] ?? $errorBody['message'] ?? $response->body() ?: 'Failed to create purchase for charge.';
+            throw new PaymentFailed($error);
+        }
+
+        $body = $response->json();
+        $purchaseId = $body['id'] ?? null;
+        if (empty($purchaseId)) {
+            throw new PaymentFailed('CHIP did not return a purchase id.');
+        }
+
+        return $purchaseId;
+    }
+
+    /**
+     * Charge a CHIP purchase using a recurring token (saved card). POST /purchases/{id}/charge/.
+     *
+     * @return array the response body on success
+     */
+    public function chargeWithToken(string $purchaseId, string $recurringToken): array
+    {
+        $response = $this->chipRequest('POST', '/purchases/' . $purchaseId . '/charge/', [
+            'recurring_token' => $recurringToken,
+        ]);
+
+        if (! $response->successful()) {
+            $errorBody = $response->json();
+            $code = $errorBody['__all__']['code'] ?? '';
+            $message = $errorBody['__all__']['message'] ?? $errorBody['message'] ?? $response->body() ?: 'Charge failed.';
+            throw new PaymentFailed($message, $response->status());
         }
 
         return $response->json();
@@ -288,8 +388,11 @@ class Hosted implements MethodInterface, LivewireMethodInterface
 
     /**
      * Create a payment record from verified CHIP success_callback payload (no redirect).
+     * When token_billing was requested and CHIP returned a recurring token, store it as ClientGatewayToken.
+     *
+     * @return Payment the created payment
      */
-    public function createPaymentFromCallback(array $purchase): void
+    public function createPaymentFromCallback(array $purchase): Payment
     {
         $amount = isset($purchase['purchase']['total']) ? (float) $purchase['purchase']['total'] / 100
             : array_sum(array_column($this->driver->payment_hash->invoices(), 'amount')) + $this->driver->payment_hash->fee_total;
@@ -302,7 +405,13 @@ class Hosted implements MethodInterface, LivewireMethodInterface
             'transaction_reference' => (string) $purchaseId,
         ];
 
-        $this->driver->createPayment($data, Payment::STATUS_COMPLETED);
+        $payment = $this->driver->createPayment($data, Payment::STATUS_COMPLETED);
+
+        $requestRecurring = $this->driver->payment_hash->data->request_recurring_token ?? false;
+        $isRecurringToken = $purchase['purchase']['is_recurring_token'] ?? $purchase['is_recurring_token'] ?? false;
+        if ($requestRecurring && $isRecurringToken && $purchaseId !== '') {
+            $this->storeRecurringToken($purchaseId, $purchase);
+        }
 
         SystemLogger::dispatch(
             ['response' => $purchaseId, 'data' => $data],
@@ -311,6 +420,32 @@ class Hosted implements MethodInterface, LivewireMethodInterface
             SystemLog::TYPE_CHIPINASIA,
             $this->driver->client,
             $this->driver->client->company,
+        );
+
+        return $payment;
+    }
+
+    /**
+     * Store CHIP recurring token (purchase id) as ClientGatewayToken for later token billing.
+     */
+    private function storeRecurringToken(string $purchaseId, array $purchase): void
+    {
+        $extra = $purchase['transaction_data']['extra'] ?? $purchase['transaction_data']['attempts'][0]['extra'] ?? [];
+        $paymentMeta = [];
+        if (isset($extra['masked_pan'])) {
+            $paymentMeta['last4'] = substr(preg_replace('/\s/', '', $extra['masked_pan']), -4);
+        }
+        if (isset($extra['cardholder_name'])) {
+            $paymentMeta['cardholder_name'] = $extra['cardholder_name'];
+        }
+
+        $this->driver->storeGatewayToken(
+            [
+                'token' => $purchaseId,
+                'payment_method_id' => GatewayType::HOSTED_PAGE,
+                'payment_meta' => $paymentMeta,
+            ],
+            ['gateway_customer_reference' => $purchaseId]
         );
     }
 

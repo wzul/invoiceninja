@@ -12,8 +12,10 @@
 
 namespace App\PaymentDrivers;
 
+use App\Exceptions\PaymentFailed;
 use App\Http\Requests\Payments\PaymentNotificationWebhookRequest;
 use App\Jobs\Util\SystemLogger;
+use App\Models\ClientGatewayToken;
 use App\Models\GatewayType;
 use App\Models\Payment;
 use App\Models\PaymentHash;
@@ -29,7 +31,7 @@ class ChipInAsiaPaymentDriver extends BaseDriver
 
     public $refundable = true;
 
-    public $token_billing = false;
+    public $token_billing = true;
 
     public $can_authorise_credit_card = false;
 
@@ -186,7 +188,30 @@ class ChipInAsiaPaymentDriver extends BaseDriver
         ];
     }
 
-    public function tokenBilling(\App\Models\ClientGatewayToken $cgt, PaymentHash $payment_hash) {}
+    /**
+     * Charge a saved CHIP card (recurring token): create a new purchase, then POST .../charge/ with the token.
+     *
+     * @return Payment the created payment on success
+     */
+    public function tokenBilling(ClientGatewayToken $cgt, PaymentHash $payment_hash): Payment
+    {
+        $this->setPaymentHash($payment_hash);
+        $this->setPaymentMethod(GatewayType::HOSTED_PAGE);
+
+        $recurringToken = $cgt->gateway_customer_reference ?? $cgt->token;
+        if (empty($recurringToken)) {
+            $this->processInternallyFailedPayment($this, new PaymentFailed('CHIP token billing: no recurring token on file.'));
+        }
+
+        $newPurchaseId = $this->payment_method->createPurchaseForTokenCharge();
+        $chargeResponse = $this->payment_method->chargeWithToken($newPurchaseId, $recurringToken);
+
+        $payment = $this->payment_method->createPaymentFromCallback($chargeResponse);
+        $payment_hash->payment_id = $payment->id;
+        $payment_hash->save();
+
+        return $payment;
+    }
 
     /**
      * Handle CHIP success_callback: verify X-Signature with public key, then create payment if status is paid.
