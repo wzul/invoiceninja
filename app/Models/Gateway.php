@@ -253,7 +253,7 @@ class Gateway extends StaticModel
             case 67:
                 return [
                     GatewayType::HOSTED_PAGE => ['refund' => true, 'token_billing' => true, 'webhooks' => []],
-                ]; //CHIP — payment confirmation via success_callback URL (no merchant webhook config)
+                ];
             default:
                 return [];
         }
