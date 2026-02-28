@@ -79,6 +79,26 @@ class ChipInAsiaPaymentDriver extends BaseDriver
         return $this;
     }
 
+    /**
+     * When the client removes the payment method in the client portal, tell CHIP to delete the
+     * recurring token so the purchase id can no longer be used for token billing.
+     *
+     * @see https://docs.chip-in.asia/chip-collect/api-reference/purchases/delete-recurring-token
+     */
+    public function detach(ClientGatewayToken $token): void
+    {
+        $purchaseId = $token->token ?? '';
+        if ($purchaseId === '') {
+            return;
+        }
+
+        if (! $this->payment_method) {
+            $this->setPaymentMethod($token->gateway_type_id);
+        }
+
+        $this->payment_method->deleteRecurringToken($purchaseId);
+    }
+
     public function authorizeView(array $data)
     {
         return $this->payment_method->authorizeView($data);

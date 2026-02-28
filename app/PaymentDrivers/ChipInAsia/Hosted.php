@@ -337,6 +337,17 @@ class Hosted implements MethodInterface, LivewireMethodInterface
     }
 
     /**
+     * POST /purchases/{id}/delete_recurring_token/ — delete the recurring token on CHIP so the
+     * purchase id can no longer be used for token billing. Call when the client removes the payment method.
+     *
+     * @see https://docs.chip-in.asia/chip-collect/api-reference/purchases/delete-recurring-token
+     */
+    public function deleteRecurringToken(string $purchaseId): void
+    {
+        $this->chipRequest('POST', '/purchases/' . $purchaseId . '/delete_recurring_token/', []);
+    }
+
+    /**
      * Retrieve the public key for authenticating CHIP callback payloads (e.g. success_callback or webhooks).
      * Cached per company gateway forever (no TTL) so the API is only called once; the key does not change.
      * See: https://docs.chip-in.asia/chip-collect/api-reference/public-key/retrieve
