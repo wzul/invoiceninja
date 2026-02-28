@@ -110,7 +110,7 @@ class Gateway extends StaticModel
         } elseif ($this->id == 65) {
             $link = 'https://help.blockonomics.co/a/solutions/articles/33000291849';
         } elseif ($this->id == 67) {
-            $link = 'https://developer.chip-in.asia/';
+            $link = 'https://notes.chip-in.asia/s/faq/p/Qwsatm6PeN';
         }
 
         return $link;
