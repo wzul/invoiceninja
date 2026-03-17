@@ -43,6 +43,11 @@ class ChipInAsiaPaymentDriver extends BaseDriver
 
     public const SYSTEM_LOG_TYPE = SystemLog::TYPE_CHIPINASIA;
 
+    public function init(): self
+    {
+        return $this;
+    }
+
     /**
      * Mandatory fields required by CHIP (e.g. email for client object).
      * Used by the required-client-info form on the payment layout.
@@ -56,11 +61,6 @@ class ChipInAsiaPaymentDriver extends BaseDriver
         ];
     }
 
-    public function init(): self
-    {
-        return $this;
-    }
-
     public function gatewayTypes(): array
     {
         $types = [];
@@ -69,34 +69,6 @@ class ChipInAsiaPaymentDriver extends BaseDriver
         }
 
         return $types;
-    }
-
-    public function setPaymentMethod($payment_method_id)
-    {
-        $class = self::$methods[$payment_method_id];
-        $this->payment_method = new $class($this);
-
-        return $this;
-    }
-
-    /**
-     * When the client removes the payment method in the client portal, tell CHIP to delete the
-     * recurring token so the purchase id can no longer be used for token billing.
-     *
-     * @see https://docs.chip-in.asia/chip-collect/api-reference/purchases/delete-recurring-token
-     */
-    public function detach(ClientGatewayToken $token): void
-    {
-        $purchaseId = $token->token ?? '';
-        if ($purchaseId === '') {
-            return;
-        }
-
-        if (! $this->payment_method) {
-            $this->setPaymentMethod($token->gateway_type_id);
-        }
-
-        $this->payment_method->deleteRecurringToken($purchaseId);
     }
 
     public function authorizeView(array $data)
@@ -117,23 +89,6 @@ class ChipInAsiaPaymentDriver extends BaseDriver
     public function processPaymentResponse($request)
     {
         return $this->payment_method->paymentResponse($request);
-    }
-
-    /**
-     * Do not create a CHIP purchase here; return redirect_to_gateway_url so the Livewire view
-     * shows a link. Purchase is created only when the user clicks (redirectToGateway).
-     * Include gateway so the payments layout (required-client-info) has $gateway.
-     */
-    public function processPaymentViewData(array $data): array
-    {
-        $data['gateway'] = $this;
-        $data['redirect_to_gateway_url'] = route('client.payments.redirect_to_gateway', [
-            'payment_hash' => $this->payment_hash->hash,
-            'company_gateway_id' => $this->company_gateway->id,
-            'payment_method_id' => $data['payment_method_id'] ?? GatewayType::HOSTED_PAGE,
-        ]);
-
-        return $data;
     }
 
     /**
@@ -244,6 +199,51 @@ class ChipInAsiaPaymentDriver extends BaseDriver
         $payment_hash->save();
 
         return $payment;
+    }
+
+    /**
+     * When the client removes the payment method in the client portal, tell CHIP to delete the
+     * recurring token so the purchase id can no longer be used for token billing.
+     *
+     * @see https://docs.chip-in.asia/chip-collect/api-reference/purchases/delete-recurring-token
+     */
+    public function detach(ClientGatewayToken $token): void
+    {
+        $purchaseId = $token->token ?? '';
+        if ($purchaseId === '') {
+            return;
+        }
+
+        if (! $this->payment_method) {
+            $this->setPaymentMethod($token->gateway_type_id);
+        }
+
+        $this->payment_method->deleteRecurringToken($purchaseId);
+    }
+
+    public function setPaymentMethod($payment_method_id)
+    {
+        $class = self::$methods[$payment_method_id];
+        $this->payment_method = new $class($this);
+
+        return $this;
+    }
+
+    /**
+     * Do not create a CHIP purchase here; return redirect_to_gateway_url so the Livewire view
+     * shows a link. Purchase is created only when the user clicks (redirectToGateway).
+     * Include gateway so the payments layout (required-client-info) has $gateway.
+     */
+    public function processPaymentViewData(array $data): array
+    {
+        $data['gateway'] = $this;
+        $data['redirect_to_gateway_url'] = route('client.payments.redirect_to_gateway', [
+            'payment_hash' => $this->payment_hash->hash,
+            'company_gateway_id' => $this->company_gateway->id,
+            'payment_method_id' => $data['payment_method_id'] ?? GatewayType::HOSTED_PAGE,
+        ]);
+
+        return $data;
     }
 
     /**
