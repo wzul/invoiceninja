@@ -234,6 +234,11 @@ class ChipInAsiaPaymentDriver extends BaseDriver
      */
     public function processPaymentViewData(array $data): array
     {
+        if (request()->query('paynow') !== 'yes') {
+            $data['redirect_to_gateway_url'] = request()->fullUrlWithQuery(['paynow' => 'yes']);
+            return $data;
+        }
+
         $data = $this->payment_method->paymentData($data);
         $data['redirect_to_gateway_url'] = $data['redirect_url'];
 

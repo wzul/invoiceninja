@@ -57,19 +57,21 @@ class Hosted implements MethodInterface, LivewireMethodInterface
     public function paymentView(array $data): View|RedirectResponse
     {
         $data['gateway'] = $this->driver;
-        $result = $this->paymentData($data);
-        $checkout_url = $result['redirect_url'] ?? null;
 
-        if (empty($checkout_url)) {
-            throw new PaymentFailed(ctrans('texts.payment_error'));
+        if (request()->query('paynow') === 'yes') {
+            $result = $this->paymentData($data);
+            $checkout_url = $result['redirect_url'] ?? null;
+
+            if (empty($checkout_url)) {
+                throw new PaymentFailed(ctrans('texts.payment_error'));
+            }
+
+            return redirect()->away($checkout_url);
         }
 
-        if ($this->driver->company_gateway->always_show_required_fields ?? false) {
-            $data['redirect_to_gateway_url'] = $checkout_url;
-            return render('gateways.chipinasia.hosted.pay', $data);
-        }
+        $data['redirect_to_gateway_url'] = request()->fullUrlWithQuery(['paynow' => 'yes']);
 
-        return redirect()->away($checkout_url);
+        return render('gateways.chipinasia.hosted.pay', $data);
     }
 
     public function paymentResponse(PaymentResponseRequest $request): RedirectResponse
