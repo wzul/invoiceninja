@@ -135,20 +135,20 @@ class Hosted implements MethodInterface, LivewireMethodInterface
             'currency' => $client->currency->code,
         ];
 
-        $payload = [
+        $payload = array_filter([
             'brand_id' => $this->driver->company_gateway->getConfigField('brandId'),
-            'client' => [
+            'client' => array_filter([
                 'email' => $contact && $contact->email ? $contact->email : $client->contacts()->first()?->email ?? '',
                 'full_name' => trim(($contact ? $contact->first_name . ' ' . $contact->last_name : '') ?: $client->name ?? ''),
                 'phone' => $client->phone ?? '',
-            ],
+            ]),
             'purchase' => $purchasePayload,
             'reference' => $this->driver->payment_hash->hash,
             'success_redirect' => $returnUrl,
             'failure_redirect' => $returnUrl,
             'cancel_redirect' => $returnUrl,
             'success_callback' => $this->driver->genericWebhookUrl(),
-        ];
+        ]);
 
         // Token billing: "always" sends force_recurring + whitelist. "off" sends nothing and we never store token.
         // For always, optin, optout we set request_recurring_token so we store the token when CHIP returns it; for off we do not.
@@ -199,28 +199,9 @@ class Hosted implements MethodInterface, LivewireMethodInterface
             return $request->get($url);
         }
 
-        return $request->post($url, $this->removeEmptyStrings($body));
+        return $request->post($url, $body);
     }
 
-    /**
-     * Recursively remove keys whose value is an empty string so they are not sent to CHIP.
-     *
-     * @param array<string, mixed> $arr
-     * @return array<string, mixed>
-     */
-    private function removeEmptyStrings(array $arr): array
-    {
-        $result = [];
-        foreach ($arr as $key => $value) {
-            if (is_array($value)) {
-                $filtered = $this->removeEmptyStrings($value);
-                $result[$key] = $filtered;
-            } elseif ($value !== '') {
-                $result[$key] = $value;
-            }
-        }
-        return $result;
-    }
 
     /**
      * GET /purchases/{id}/ to retrieve purchase status.
@@ -251,13 +232,13 @@ class Hosted implements MethodInterface, LivewireMethodInterface
 
         $this->ensureChipRequiredFields($contact, $client);
 
-        $payload = [
+        $payload = array_filter([
             'brand_id' => $this->driver->company_gateway->getConfigField('brandId'),
-            'client' => [
+            'client' => array_filter([
                 'email' => $contact && $contact->email ? $contact->email : $client->contacts()->first()?->email ?? '',
                 'full_name' => trim(($contact ? $contact->first_name . ' ' . $contact->last_name : '') ?: $client->name ?? ''),
                 'phone' => $client->phone ?? '',
-            ],
+            ]),
             'purchase' => [
                 'products' => [
                     [
@@ -269,7 +250,7 @@ class Hosted implements MethodInterface, LivewireMethodInterface
             ],
             'reference' => $payment_hash->hash,
             'success_callback' => $this->driver->genericWebhookUrl(),
-        ];
+        ]);
 
         $response = $this->chipRequest('POST', '/purchases/', $payload);
         if (! $response->successful()) {
