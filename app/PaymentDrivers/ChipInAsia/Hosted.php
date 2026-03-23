@@ -52,26 +52,24 @@ class Hosted implements MethodInterface, LivewireMethodInterface
     }
 
     /**
-     * When the gateway does NOT require "Always show required fields form", redirect immediately to the
-     * gateway so the user skips the intermediate "Pay Now" page. When that option is enabled, show the
-     * pay view so the payments layout can display the required-client-info form; the user fills it and
-     * then clicks "Pay Now" to go to CHIP. We do NOT create the CHIP purchase here in either case.
+     * Directly create a CHIP purchase and redirect OR show "Pay Now" if required fields form is needed.
      */
     public function paymentView(array $data): View|RedirectResponse
     {
         $data['gateway'] = $this->driver;
-        $redirect_to_gateway_url = route('client.payments.redirect_to_gateway', [
-            'payment_hash' => $data['payment_hash'],
-            'company_gateway_id' => $this->driver->company_gateway->id,
-            'payment_method_id' => $data['payment_method_id'],
-        ]);
+        $result = $this->paymentData($data);
+        $checkout_url = $result['redirect_url'] ?? null;
+
+        if (empty($checkout_url)) {
+            throw new PaymentFailed(ctrans('texts.payment_error'));
+        }
 
         if ($this->driver->company_gateway->always_show_required_fields ?? false) {
-            $data['redirect_to_gateway_url'] = $redirect_to_gateway_url;
+            $data['redirect_to_gateway_url'] = $checkout_url;
             return render('gateways.chipinasia.hosted.pay', $data);
         }
 
-        return redirect()->to($redirect_to_gateway_url);
+        return redirect()->away($checkout_url);
     }
 
     public function paymentResponse(PaymentResponseRequest $request): RedirectResponse
