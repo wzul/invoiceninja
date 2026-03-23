@@ -132,7 +132,7 @@ class Hosted implements MethodInterface, LivewireMethodInterface
                     'price' => $amountCents,
                 ],
             ],
-            'currency' => 'MYR',
+            'currency' => $client->currency->code,
         ];
 
         $payload = [
@@ -265,7 +265,7 @@ class Hosted implements MethodInterface, LivewireMethodInterface
                         'price' => $amountCents,
                     ],
                 ],
-                'currency' => 'MYR',
+                'currency' => $client->currency->code,
             ],
             'reference' => $payment_hash->hash,
             'success_callback' => $this->driver->genericWebhookUrl(),
