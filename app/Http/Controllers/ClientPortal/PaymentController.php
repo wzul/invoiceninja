@@ -132,7 +132,7 @@ class PaymentController extends Controller
     {
 
         if(in_array($request->input('docuninja_active', false), [true, 'true', 1, '1'], true)){
-
+        
             $request_hash = \Illuminate\Support\Str::random(64);
             $payable_invoices = array_column($request->input('payable_invoices'), 'invoice_id');
             $ids = $this->transformKeys($payable_invoices);
@@ -148,11 +148,11 @@ class PaymentController extends Controller
             if($invitations->count() > 0){
 
                 $invitation = $invitations->first();
-
+                
                 $request->merge(['entity_type' => 'invoice', 'db' => auth()->guard('contact')->user()->company->db, 'request_hash' => $request_hash]);
 
                 Cache::put($request_hash, $request->all(), 60 * 60 * 24);
-
+                
                 return $this->render('components.docuninja', [
                     'invitation_id' => $invitation->id,
                     'entity_type' => 'invoice',
