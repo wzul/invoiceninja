@@ -18,7 +18,8 @@ class Purify
 
         // Text Elements
         'span', 'strong', 'em', 'b', 'i', 'u', 'small',
-        'sub', 'sup', 'del', 'ins',
+        'sub', 'sup', 'del', 'ins', 'code', 's', 'mark',
+        'abbr', 'q', 'cite',
 
         // Line Breaks
         'br', 'hr',
@@ -28,9 +29,16 @@ class Purify
 
         // Tables
         'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td',
+        'caption', 'colgroup', 'col',
 
         // Media & Links
         'img', 'a',
+
+        // Figures
+        'figure', 'figcaption',
+
+        // Address
+        'address',
 
         // Template specific
         'ninja',
@@ -58,6 +66,7 @@ class Purify
         //SVG
         'd' => ['*'],
         'viewBox' => ['*'],
+        'viewbox' => ['*'], // DOMDocument lowercases viewBox
         'xmlns' => ['http://www.w3.org/2000/svg'],
         'fill' => ['*'],
         'stroke' => ['*'],
@@ -70,6 +79,7 @@ class Purify
         'transform' => ['*'],
         'points' => ['*'],
         'preserveAspectRatio' => ['*'],
+        'preserveaspectratio' => ['*'], // DOMDocument lowercases preserveAspectRatio
         'version' => ['*'],
         'xlink:href' => ['#*'], // Only allow internal references
         'fill-rule' => ['nonzero', 'evenodd'],
@@ -247,8 +257,15 @@ class Purify
     {
         return in_array(strtolower($tagName), self::$dangerous_svg_elements);
     }
-
-    public static function clean(string $html): string
+    
+    /**
+     * clean
+     *
+     * @param  string $html
+     * @param  bool $is_fragment
+     * @return string
+     */
+    public static function clean(string $html, bool $is_fragment = false): string
     {
         
         if (config('ninja.disable_purify_html') || strlen($html) <= 1) {
@@ -256,6 +273,18 @@ class Purify
         }
 
         $html = str_replace('%24', '$', $html);
+
+        // Strip null bytes — no legitimate use in text, and they can be used
+        // to bypass HTML tag detection (e.g. "<\x00script>")
+        $html = str_replace("\x00", '', $html);
+
+        // If the string contains no actual HTML tags, return it unchanged.
+        // This avoids DOMDocument wrapping plain text like "< i am text" in <p> tags.
+        // Real HTML tags start with < followed by a letter, / or !
+        if (!preg_match('/<[a-zA-Z\/!]/', $html)) {
+            return $html;
+        }
+
         libxml_use_internal_errors(true);
 
         $document = new \DOMDocument();
@@ -307,39 +336,13 @@ class Purify
                     $current_attributes[$attr->name] = $attr->value;
                 }
 
-                // Handle SVG node separately
-                if ($node->tagName === 'svg') {
-                    // Keep only allowed SVG attributes
-                    $current_attributes = [];
-                    foreach ($node->attributes as $attr) {
-
-                        if (in_array($attr->name, self::$dangerous_svg_elements)) {
-                            $node->removeAttribute($attr->name);
-                        }
-
-                    }
-
-                } else {
-                    // First, remove ALL attributes from the node
-                    // while ($node->attributes->length > 0) {
-                    //     $attr = $node->attributes->item(0);
-                    //     $node->removeAttribute($attr->nodeName);
-                    // }
-
-
-                    if ($node instanceof \DOMElement) {
-                        // Create a list of attributes to remove
-                        $attributes_to_remove = [];
-                        foreach ($node->attributes as $attr) {
-                            $attributes_to_remove[] = $attr->nodeName;
-                        }
-
-                        // Remove the attributes
-                        foreach ($attributes_to_remove as $attr_name) {
-                            $node->removeAttribute($attr_name);
-                        }
-                    }
-
+                // Remove ALL attributes from the node, then re-add only allowed ones below
+                $attributes_to_remove = [];
+                foreach ($node->attributes as $attr) {
+                    $attributes_to_remove[] = $attr->nodeName;
+                }
+                foreach ($attributes_to_remove as $attr_name) {
+                    $node->removeAttribute($attr_name);
                 }
 
                 // Then add back only the allowed attributes
@@ -428,7 +431,19 @@ class Purify
 
             $cleanNodes($document->documentElement);
 
-            $html = str_replace('%24', '$', $document->saveHTML());
+            if ($is_fragment) {
+                $body = $document->getElementsByTagName('body')->item(0);
+                $html = '';
+                if ($body) {
+                    foreach ($body->childNodes as $child) {
+                        $html .= $document->saveHTML($child);
+                    }
+                }
+            } else {
+                $html = $document->saveHTML();
+            }
+
+            $html = str_replace('%24', '$', $html);
 
             // nlog("post purify => {$html}");
             return $html;

@@ -13,6 +13,7 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\FilePermissionsFailure;
+use App\Models\Account;
 use App\Models\Company;
 use App\Utils\Ninja;
 use App\Utils\Traits\AppSetup;
@@ -48,7 +49,7 @@ class SelfUpdateController extends BaseController
         set_time_limit(0);
         define('STDIN', fopen('php://stdin', 'r'));
 
-        if (Ninja::isHosted() || config('ninja.disable_auto_update')) {
+        if (Ninja::isHosted() || config('ninja.disable_auto_update') || !($account = Account::first())) {
             return response()->json(['message' => ctrans('texts.self_update_not_available')], 403);
         }
 
@@ -128,6 +129,13 @@ class SelfUpdateController extends BaseController
         Artisan::call('ninja:design-update');
 
         nlog('Called Artisan commands');
+
+        if (config('ninja.pdf_generator') == 'snappdf') {
+            nlog('Downloading snappdf binary');
+            $process = new \Symfony\Component\Process\Process(['./vendor/bin/snappdf', 'download'], base_path());
+            $process->setTimeout(300);
+            $process->run();
+        }
 
         return response()->json(['message' => 'Update completed'], 200);
     }

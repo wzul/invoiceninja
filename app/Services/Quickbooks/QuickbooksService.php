@@ -93,7 +93,7 @@ class QuickbooksService
                 'auth_mode' => 'oauth2',
                 'scope' => "com.intuit.quickbooks.accounting",
                 'RedirectURI' => config('services.quickbooks.redirect'),
-                'baseUrl' => $this->testMode ? CoreConstants::SANDBOX_DEVELOPMENT : CoreConstants::QBO_BASEURL,
+                'baseUrl' => config('services.quickbooks.env') === 'sandbox' ? CoreConstants::SANDBOX_DEVELOPMENT : CoreConstants::QBO_BASEURL,
             ];
 
             // Don't merge expired tokens when reconnection is required
@@ -173,7 +173,7 @@ class QuickbooksService
             
             // Check if refresh token is also expired - if so, don't attempt refresh
             $refresh_token_expired = $this->company->quickbooks->refreshTokenExpiresAt > 0 
-                && $this->company->quickbooks->refreshTokenExpiresAt < time();
+               && $this->company->quickbooks->refreshTokenExpiresAt < time();
             
             if ($refresh_token_expired) {
                 $this->markRequiresReconnect();

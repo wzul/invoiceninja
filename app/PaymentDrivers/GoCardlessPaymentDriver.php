@@ -12,22 +12,23 @@
 
 namespace App\PaymentDrivers;
 
+use App\Factory\ClientContactFactory;
+use App\Factory\ClientFactory;
+use App\Http\Requests\Payments\PaymentWebhookRequest;
+use App\Jobs\Mail\PaymentFailedMailer;
+use App\Jobs\Util\SystemLogger;
 use App\Models\Client;
+use App\Models\ClientGatewayToken;
 use App\Models\Country;
-use App\Models\Payment;
-use App\Models\SystemLog;
 use App\Models\GatewayType;
+use App\Models\Payment;
 use App\Models\PaymentHash;
 use App\Models\PaymentType;
-use App\Factory\ClientFactory;
-use App\Jobs\Util\SystemLogger;
-use App\Utils\Traits\MakesHash;
-use App\Models\ClientGatewayToken;
-use App\Factory\ClientContactFactory;
-use App\Jobs\Mail\PaymentFailedMailer;
+use App\Models\SystemLog;
+use App\PaymentDrivers\GoCardless\Jobs\GoCardlessWebhook;
 use App\Utils\Traits\GeneratesCounter;
+use App\Utils\Traits\MakesHash;
 use Illuminate\Database\QueryException;
-use App\Http\Requests\Payments\PaymentWebhookRequest;
 
 class GoCardlessPaymentDriver extends BaseDriver
 {
@@ -70,16 +71,16 @@ class GoCardlessPaymentDriver extends BaseDriver
 
         if (
             $this->client
-            && isset($this->client->country)
-            && in_array($this->client->country->iso_3166_3, ['USA'])
+           && isset($this->client->country)
+           && in_array($this->client->country->iso_3166_3, ['USA'])
         ) {
             $types[] = GatewayType::BANK_TRANSFER;
         }
 
         if (
             $this->client
-            && isset($this->client->country)
-            && in_array($this->client->currency()->code, ['EUR', 'GBP','DKK','SEK','AUD','NZD','CAD'])
+           && isset($this->client->country)
+           && in_array($this->client->currency()->code, ['EUR', 'GBP','DKK','SEK','AUD','NZD','CAD'])
         ) {
             $types[] = GatewayType::DIRECT_DEBIT;
         }
@@ -170,6 +171,7 @@ class GoCardlessPaymentDriver extends BaseDriver
                 ],
             ]);
 
+            nlog("tokenbilling", $payment);
             if (in_array($payment->status, ['submitted', 'pending_submission'])) {
 
                 $data = [
@@ -262,66 +264,36 @@ class GoCardlessPaymentDriver extends BaseDriver
         $this->init();
 
         nlog('GoCardless Event');
-        // nlog($request->all());
+
+        $webhook_secret = $this->company_gateway->getConfigField('webhookSecret');
+
+        if ($webhook_secret) {
+            $sig_header = $request->header('Webhook-Signature');
+
+            if (! $sig_header) {
+                return response()->json(['error' => 'No signature header'], 403);
+            }
+
+            try {
+                \GoCardlessPro\Webhook::parse(
+                    $request->getContent(),
+                    $sig_header,
+                    $webhook_secret
+                );
+            } catch (\GoCardlessPro\Core\Exception\InvalidSignatureException $e) {
+                nlog('GoCardless webhook signature verification failed: ' . $e->getMessage());
+
+                return response()->json(['error' => 'Invalid signature'], 403);
+            }
+        }
+
         if (! $request->has('events')) {
             nlog('No GoCardless events to process in response?');
 
             return response()->json([], 200);
         }
 
-        sleep(1);
-
-        foreach ($request->events as $event) {
-            nlog($event);
-            if (
-                ($event['resource_type'] == 'payments' && $event['action'] == 'confirmed')
-                || $event['action'] === 'paid_out') {
-                nlog('Searching for transaction reference');
-
-                $payment = Payment::query()
-                    ->where('transaction_reference', $event['links']['payment'])
-                    ->where('company_id', $request->getCompany()->id)
-                    ->first();
-
-                if ($payment) {
-                    $payment->status_id = Payment::STATUS_COMPLETED;
-                    $payment->save();
-                    nlog('GoCardless completed');
-                } else {
-                    nlog('I was unable to find the payment for this reference');
-                }
-                //finalize payments on invoices here.
-            }
-
-            if ($event['action'] === 'failed' && array_key_exists('payment', $event['links'])) {
-                $payment = Payment::query()
-                    ->where('transaction_reference', $event['links']['payment'])
-                    ->where('company_id', $request->getCompany()->id)
-                    ->first();
-
-                if ($payment) {
-                    if ($payment->status_id == Payment::STATUS_PENDING) {
-                        $payment->service()->deletePayment();
-                    }
-
-                    $payment->status_id = Payment::STATUS_FAILED;
-                    $payment->save();
-
-                    $payment_hash = PaymentHash::where('payment_id', $payment->id)->first();
-                    $error = '';
-
-                    if (isset($event['details']['description'])) {
-                        $error = $event['details']['description'];
-                    }
-
-                    PaymentFailedMailer::dispatch(
-                        $payment_hash,
-                        $payment->client->company,
-                        $payment->client,
-                        $error
-                    );
-                }
-            }
+        GoCardlessWebhook::dispatch($request->events, $request->company_key, $this->decodePrimaryKey($request->company_gateway_id))->delay(2);
 
             //billing_request fulfilled
             //
@@ -377,7 +349,7 @@ class GoCardlessPaymentDriver extends BaseDriver
             //         $this->processSuccessfulPayment($payment);
             //     }
             // }
-        }
+ 
 
         return response()->json([], 200);
     }

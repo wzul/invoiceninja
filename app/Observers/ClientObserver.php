@@ -75,14 +75,14 @@ class ClientObserver
                                     ->exists();
 
         if ($subscriptions) {
-            WebhookHandler::dispatch(Webhook::EVENT_CREATE_CLIENT, $client, $client->company)->delay(0);
+            WebhookHandler::dispatch(Webhook::EVENT_CREATE_CLIENT, $client, $client->company)->delay(2);
         }
 
         // Only push to QuickBooks if:
         // 1. QuickBooks is connected and client sync is enabled
         // 2. We're NOT currently importing from QuickBooks (prevent circular sync)
         if ($client->company->shouldPushToQuickbooks('client')
-            && empty(\App\Services\Quickbooks\QuickbooksService::$importing[$client->company_id])) {
+           && empty(\App\Services\Quickbooks\QuickbooksService::$importing[$client->company_id])) {
             \App\Jobs\Quickbooks\PushToQuickbooks::dispatch(
                 'client',
                 $client->id,
@@ -99,7 +99,7 @@ class ClientObserver
      */
     public function updated(Client $client)
     {
-
+        
         /** Monitor postal code changes for US based clients for tax calculations */
         if (($client->getOriginal('shipping_postal_code') != $client->shipping_postal_code || $client->getOriginal('postal_code') != $client->postal_code) && $client->country_id == 840 && $client->company->calculate_taxes && !$client->company->account->isFreeHostedClient()) {
             UpdateTaxData::dispatch($client, $client->company);
@@ -125,7 +125,7 @@ class ClientObserver
                                     ->exists();
 
         if ($subscriptions) {
-            WebhookHandler::dispatch($event, $client, $client->company, 'client')->delay(0);
+            WebhookHandler::dispatch($event, $client, $client->company, 'client')->delay(2);
         }
 
         // Only push to QuickBooks if:
@@ -133,8 +133,8 @@ class ClientObserver
         // 2. We're NOT currently importing from QuickBooks (prevent circular sync)
         // 3. Only financial fields changed (not balance fields which are auto-calculated)
         if ($client->company->shouldPushToQuickbooks('client')
-            && empty(\App\Services\Quickbooks\QuickbooksService::$importing[$client->company_id])
-            && !$client->isDirty(['paid_to_date','balance','credit_balance','payment_balance'])) {
+           && empty(\App\Services\Quickbooks\QuickbooksService::$importing[$client->company_id])
+           && !$client->isDirty(['paid_to_date','balance','credit_balance','payment_balance'])) {
             \App\Jobs\Quickbooks\PushToQuickbooks::dispatch(
                 'client',
                 $client->id,
@@ -160,7 +160,7 @@ class ClientObserver
                                     ->exists();
 
         if ($subscriptions) {
-            WebhookHandler::dispatch(Webhook::EVENT_ARCHIVE_CLIENT, $client, $client->company)->delay(0);
+            WebhookHandler::dispatch(Webhook::EVENT_ARCHIVE_CLIENT, $client, $client->company)->delay(2);
         }
     }
 
