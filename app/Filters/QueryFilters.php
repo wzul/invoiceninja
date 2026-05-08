@@ -89,6 +89,17 @@ abstract class QueryFilters
                 continue;
             }
 
+            // potential multi column sort
+            if ($name === 'sort' && is_array($value)) {
+                foreach ($value as $sort) {
+                    if (is_string($sort) && strlen($sort)) {
+                        $this->$name($sort);
+                    }
+                }
+
+                continue;
+            }
+            
             if (is_string($value) && strlen($value)) {
                 $this->$name($value);
             } else {
@@ -96,10 +107,32 @@ abstract class QueryFilters
             }
         }
 
+        $this->ensureDefaultOrder();
+
         // nlog('[Search] SQL: ' . $this->builder->toSql() . " Bindings: " . implode(', ', $this->builder->getBindings()));
 
         return $this->builder->withTrashed();
     }
+    
+    /**
+     * ensureDefaultOrder
+     * 
+     * Ensures at least a single order by is applied to the query.
+     * @return Builder
+     */
+    protected function ensureDefaultOrder(): Builder
+    {
+        $query = $this->builder->getQuery();
+
+        if (! empty($query->orders) || ! empty($query->unionOrders)) {
+            return $this->builder;
+        }
+
+        return $this->builder->orderByDesc(
+            $this->builder->getModel()->getQualifiedKeyName()
+        );
+    }
+
 
     /**
      * Get all request filters data.
@@ -328,12 +361,20 @@ abstract class QueryFilters
         }
 
         if ($this->with_property == 'id') {
-            $value = $this->decodePrimaryKey($value);
+
+            if (str_contains($value, ',')) {
+                $value = $this->transformKeys(explode(',', $value));
+            } else {
+                $value = [$this->decodePrimaryKey($value)];
+            }
+
+        } else {
+            $value = [$value];
         }
 
         return $this->builder
-            ->orWhere($this->with_property, $value)
-            ->orderByRaw("{$this->with_property} = ? DESC", [$value])
+            ->orWhereIn($this->with_property, $value)
+            ->orderByRaw("{$this->with_property} = ? DESC", [$value[0]])
             ->company();
     }
 
@@ -389,6 +430,28 @@ abstract class QueryFilters
             return $this->builder;
         }
 
+    }
+
+    public function assigned_user_ids(string $assigned_user_ids = ''): Builder
+    {
+        if (strlen($assigned_user_ids) == 0 || !in_array('assigned_user_id', \Illuminate\Support\Facades\Schema::getColumnListing($this->builder->getModel()->getTable()))) {
+            return $this->builder;
+        }
+
+        return $this->builder->where(function ($q) use ($assigned_user_ids) {
+            $q->whereIn('assigned_user_id', $this->transformKeys(explode(',', $assigned_user_ids)));
+        });
+    }
+
+    public function client_ids(string $client_ids = ''): Builder
+    {
+        if (strlen($client_ids) == 0 || !in_array('client_id', \Illuminate\Support\Facades\Schema::getColumnListing($this->builder->getModel()->getTable()))) {
+            return $this->builder;
+        }
+
+        return $this->builder->where(function ($q) use ($client_ids) {
+            $q->whereIn('client_id', $this->transformKeys(explode(',', $client_ids)));
+        });
     }
 
     /**

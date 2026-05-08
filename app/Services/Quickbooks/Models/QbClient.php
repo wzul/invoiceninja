@@ -69,12 +69,18 @@ class QbClient implements SyncInterface
                 }
             }
 
-            $client = $this->findClient($ninja_data[0]['id'], $ninja_data[0]['name'] ?? null, $ninja_data[1]['email'] ?? null);
+            $qb_id = $ninja_data[0]['id'];
+            unset($ninja_data[0]['terms'], $ninja_data[0]['id']);
+            $client = $this->findClient($qb_id, $ninja_data[0]['name'] ?? null, $ninja_data[1]['email'] ?? null);
+
             if (! $client) {
                 continue;
             }
 
             $client->fill($ninja_data[0]);
+            $client->forceFill([
+                'client_hash' => $ninja_data[0]['client_hash'] ?? $client->client_hash,
+            ]);
             $client->service()->applyNumber()->save();
 
             $contact = $client->contacts()->where('email', $ninja_data[1]['email'])->first();
@@ -115,9 +121,10 @@ class QbClient implements SyncInterface
 
     private function findClientIdByName(?string $name): mixed
     {
-        return $this->service->sdk->Query("SELECT Id FROM Customer WHERE DisplayName = '{$name}'",1,1);
+        $escaped_name = str_replace("'", "\\'", $name ?? '');
+        return $this->service->sdk->Query("SELECT Id FROM Customer WHERE DisplayName = '{$escaped_name}'", 1, 1);
     }
-    
+
     /**
      * createQbClient
      *
@@ -145,15 +152,14 @@ class QbClient implements SyncInterface
 
                     return $client->sync->qb_id;
                 }
-            }
-            else {
+            } else {
                 $customers = $this->findClientIdByName($client->present()->name());
                 if ($customers) {
                     // QB SDK can return a single object or an array; normalize to array
                     if (!is_array($customers)) {
                         $customers = [$customers];
                     }
-                    
+
                     if (isset($customers[0])) {
                         $customer = $customers[0];
                         $qb_id = data_get($customer, 'Id') ?? data_get($customer, 'Id.value');
@@ -162,7 +168,7 @@ class QbClient implements SyncInterface
                         $sync->qb_id = $qb_id;
                         $client->sync = $sync;
                         $client->saveQuietly();
-                        
+
                         return $qb_id;
                     }
                 }
@@ -185,6 +191,51 @@ class QbClient implements SyncInterface
 
         } catch (\Exception $e) {
             nlog("QuickBooks: Error pushing client {$client->id} to QuickBooks: {$e->getMessage()}");
+
+            // Handle duplicate name error (code 6240) - try to find and link existing QB customer
+            if (str_contains($e->getMessage(), '6240') || str_contains($e->getMessage(), 'Duplicate Name Exists')) {
+                // First, try to find a matching Customer by DisplayName
+                $customers = $this->findClientIdByName($client->present()->name());
+                if ($customers) {
+                    if (!is_array($customers)) {
+                        $customers = [$customers];
+                    }
+                    if (isset($customers[0])) {
+                        $qb_id = data_get($customers[0], 'Id') ?? data_get($customers[0], 'Id.value');
+                        $sync = new \App\DataMapper\ClientSync();
+                        $sync->qb_id = $qb_id;
+                        $client->sync = $sync;
+                        $client->saveQuietly();
+
+                        nlog("QuickBooks: Resolved duplicate - linked client {$client->id} to existing QB customer (QB ID: {$qb_id})");
+                        return $qb_id;
+                    }
+                }
+
+                // Name collision is with a Vendor or Employee — retry with a unique DisplayName
+                $unique_name = mb_substr($client->present()->name(), 0, 95) . ' (C)';
+                $qb_client_data = $this->client_transformer->ninjaToQb($client, $this->service);
+                $qb_client_data['DisplayName'] = $unique_name;
+
+                nlog("QuickBooks: Name collision with Vendor/Employee for client {$client->id}, retrying as '{$unique_name}'");
+
+                $customer = \QuickBooksOnline\API\Facades\Customer::create($qb_client_data);
+                $resulting_customer = $this->service->sdk->Add($customer);
+
+                $qb_id = data_get($resulting_customer, 'Id') ?? data_get($resulting_customer, 'Id.value');
+
+                $sync = new \App\DataMapper\ClientSync();
+                $sync->qb_id = $qb_id;
+                $client->sync = $sync;
+                $client->saveQuietly();
+
+                nlog("QuickBooks: Created client {$client->id} with unique name '{$unique_name}' (QB ID: {$qb_id})");
+                return $qb_id;
+            }
+
+            app('sentry')->captureException($e);
+
+
             throw $e;
         }
     }
@@ -231,7 +282,10 @@ class QbClient implements SyncInterface
         // Transform and run through the standard find/create flow
         $ninja_data = $this->client_transformer->qbToNinja($qb_customer, $this->service);
 
-        $client = $this->findClient($ninja_data[0]['id'], $ninja_data[0]['name'] ?? null, $ninja_data[1]['email'] ?? null);
+        $qb_id = $ninja_data[0]['id'];
+        unset($ninja_data[0]['terms'], $ninja_data[0]['id']);
+
+        $client = $this->findClient($qb_id, $ninja_data[0]['name'] ?? null, $ninja_data[1]['email'] ?? null);
 
         if (!$client) {
             nlog("QuickBooks: Unable to resolve client for QB customer {$qb_customer_id}");
@@ -280,9 +334,10 @@ class QbClient implements SyncInterface
                 ->withTrashed()
                 ->where('company_id', $company_id)
                 ->where('name', $name)
+                ->whereNull('sync')
                 ->first();
 
-         
+
             if ($name_match) {
                 $sync = $name_match->sync ? clone $name_match->sync : new ClientSync();
                 $sync->qb_id = $key;
@@ -302,6 +357,7 @@ class QbClient implements SyncInterface
                 ->whereHas('contacts', function ($query) use ($email) {
                     $query->where('email', $email);
                 })
+                ->whereNull('sync')
                 ->first();
 
             if ($email_match) {
@@ -316,6 +372,7 @@ class QbClient implements SyncInterface
 
         // No match found - create a new client
         $client = ClientFactory::create($company_id, $this->service->company->owner()->id);
+        $client->country_id = $this->service->company->settings->country_id;
 
         $sync = new ClientSync();
         $sync->qb_id = $key;

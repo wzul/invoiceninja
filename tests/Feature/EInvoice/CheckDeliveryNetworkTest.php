@@ -154,6 +154,22 @@ class CheckDeliveryNetworkTest extends TestCase
     }
 
     // ──────────────────────────────────────────────────────
+    // BE business — explicit focused test
+    // ──────────────────────────────────────────────────────
+
+    public function testBeBusinessClientIsRoutable(): void
+    {
+        $client = $this->makeClient(56, 'business'); // BE
+
+        $result = $client->checkDeliveryNetwork();
+
+        $this->assertNull(
+            $result,
+            "Belgian business client should pass checkDeliveryNetwork(), got: " . var_export($result, true)
+        );
+    }
+
+    // ──────────────────────────────────────────────────────
     // ES and GB — business in routing rules
     // ─────────────────────────────────��────────────────────
 
@@ -214,12 +230,14 @@ class CheckDeliveryNetworkTest extends TestCase
     public static function unsupportedCountryProvider(): array
     {
         return [
-            'US' => [840, 'US'],
-            'AU' => [36, 'AU'],
-            'JP' => [392, 'JP'],
             'BR' => [76, 'BR'],
-            'IN' => [356, 'IN'],
             'CN' => [156, 'CN'],
+            // Countries with tax metadata in routing_rules but not Peppol destinations
+            'HR' => [191, 'HR'], // Croatia
+            'CZ' => [203, 'CZ'], // Czech Republic
+            'HU' => [348, 'HU'], // Hungary
+            'SK' => [703, 'SK'], // Slovakia
+            'CH' => [756, 'CH'], // Switzerland
         ];
     }
 
@@ -227,25 +245,22 @@ class CheckDeliveryNetworkTest extends TestCase
     // IT — commented out of peppol_business_countries
     // ───────────────────────────���──────────────────────────
 
-    public function testItBusinessIsBlocked(): void
+    public function testItBusinessIsRoutable(): void
     {
         $client = $this->makeClient(380, 'business');
-        $result = $client->checkDeliveryNetwork();
-        $this->assertIsString($result, "IT should be blocked — not in supported country lists");
+        $this->assertNull($client->checkDeliveryNetwork(), "IT business should be routable via SDI");
     }
 
-    public function testItGovernmentIsBlocked(): void
+    public function testItGovernmentIsRoutable(): void
     {
         $client = $this->makeClient(380, 'government');
-        $result = $client->checkDeliveryNetwork();
-        $this->assertIsString($result, "IT government should be blocked — not in supported country lists");
+        $this->assertNull($client->checkDeliveryNetwork(), "IT government should be routable via SDI");
     }
 
-    public function testItIndividualIsBlocked(): void
+    public function testItIndividualIsRoutable(): void
     {
         $client = $this->makeClient(380, 'individual');
-        $result = $client->checkDeliveryNetwork();
-        $this->assertIsString($result, "IT individual should be blocked — not in supported country lists");
+        $this->assertNull($client->checkDeliveryNetwork(), "IT individual should be routable via SDI");
     }
 
     // ──────────────��───────────────────────���───────────────

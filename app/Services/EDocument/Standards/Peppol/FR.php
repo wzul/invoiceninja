@@ -14,90 +14,50 @@ namespace App\Services\EDocument\Standards\Peppol;
 
 use App\Services\EDocument\Gateway\MutatorUtil;
 
+/**
+ * France — Chorus Pro (B2G) + PEPPOL (B2B)
+ *
+ * B2G: All government invoices route to Chorus Pro via SIRET 0009:11000201100044.
+ *       The final recipient's SIRET must be included as customerAssignedAccountId.
+ * B2B: Route via FR:SIRENE (9-digit) or FR:SIRET (14-digit) based on client id_number.
+ * B2C: Out of scope — France's e-invoicing mandate covers B2B/B2G only.
+ */
 class FR extends BaseCountry
 {
-    public function getRoutingRules(): ?array
+    public function getCandidates(object $client, string $classification, object $router): array
     {
-        return [
-            ["G", "FR:SIRET + customerAssignedAccountIdValue", false, "0009:11000201100044"],
-            ["B", "FR:SIRENE or FR:SIRET", "FR:VAT", "FR:SIRENE or FR:SIRET"],
-        ];
-    }
-
-    public function resolveRoutingOverride(string $classification, ?object $invoice = null): ?string
-    {
-        if (!$invoice) {
-            return null;
+        if ($classification === 'government') {
+            return [['scheme' => '0009', 'id' => '11000201100044']];
         }
 
-        $code = match ($classification) {
-            'government' => 'G',
-            'individual' => 'C',
-            default => 'B',
-        };
-
-        if ($code === 'B' && strlen($invoice->client->id_number) == 9) {
-            return 'FR:SIRENE';
-        } elseif ($code === 'B' && strlen($invoice->client->id_number) == 14) {
-            return 'FR:SIRET';
-        } elseif ($code === 'G') {
-            return '0009:11000201100044';
+        $idNumber = preg_replace("/[^a-zA-Z0-9]/", "", $client->id_number ?? '');
+        if (strlen($idNumber) < 9) {
+            return [];
         }
 
-        return null;
-    }
-
-    public function resolveTaxSchemeOverride(string $classification, ?object $invoice = null): ?string
-    {
-        if (!$invoice) {
-            return null;
-        }
-
-        $code = match ($classification) {
-            'government' => 'G',
-            'individual' => 'C',
-            default => 'B',
-        };
-
-        if ($code === 'G') {
-            return '0009:11000201100044';
-        }
-
-        return null;
+        $scheme = strlen($idNumber) === 9 ? 'FR:SIRENE' : 'FR:SIRET';
+        return [['scheme' => $scheme, 'id' => $idNumber]];
     }
 
     public function senderMutations(
         mixed $p_invoice,
         mixed $invoice,
         MutatorUtil $mutator_util,
-        array $storecove_meta
-    ): array {
+    ): mixed {
 
-        // When sending invoices to the French government (Chorus Pro):
-        // All invoices have to be routed to SIRET 0009:11000201100044.
-        // There is no test environment for sending to public entities.
-        if ($invoice->client->classification == 'government') {
-            $storecove_meta = $this->mergeMeta($storecove_meta, $this->buildRouting([
-                ["scheme" => 'FR:SIRET', "id" => '11000201100044'],
-            ]));
-
-            // The SIRET / 0009 identifier of the final recipient is to be included
-            // in the invoice.accountingCustomerParty.publicIdentifiers array.
-            $mutator_util->setCustomerAssignedAccountId(true);
-        }
-
-        if (strlen($invoice->client->id_number ?? '') == 9) {
-            // SIREN
-            $storecove_meta = $this->mergeMeta($storecove_meta, $this->buildRouting([
-                ["scheme" => 'FR:SIRET', "id" => "{$invoice->client->id_number}"],
-            ]));
-        } else {
-            // SIRET
-            $storecove_meta = $this->mergeMeta($storecove_meta, $this->buildRouting([
-                ["scheme" => 'FR:SIRET', "id" => "{$invoice->client->id_number}"],
-            ]));
-        }
-
-        return ['p_invoice' => $p_invoice, 'storecove_meta' => $storecove_meta];
+        return $p_invoice;
     }
+
+    /**
+     * Receiver mutations for when the client is in France but the sender is not.
+     */
+    public function receiverMutations(
+        mixed $p_invoice,
+        mixed $invoice,
+        MutatorUtil $mutator_util,
+    ): mixed {
+
+        return $p_invoice;
+    }
+
 }

@@ -148,9 +148,13 @@ class NinjaMailerJob implements ShouldQueue
                 $mailable->build();
             }
 
-            $mailer
-                ->to($this->nmo->to_user->email)
-                ->send($mailable);
+            $pendingMail = $mailer->to($this->nmo->to_user->email);
+
+            if (!empty($this->nmo->cc)) {
+                $pendingMail->cc($this->nmo->cc);
+            }
+
+            $pendingMail->send($mailable);
 
             /* Count the amount of emails sent across all the users accounts */
 
@@ -175,7 +179,7 @@ class NinjaMailerJob implements ShouldQueue
 
                 $message = "Recipient {$email} has been suppressed and cannot receive emails from you.";
 
-                $this->fail();
+                
                 $this->cleanUpMailers();
                 $this->logMailError($message, $this->company->clients()->first());
 
@@ -186,21 +190,22 @@ class NinjaMailerJob implements ShouldQueue
                 return;
             }
 
-            $this->fail();
-            $this->cleanUpMailers();
-            $this->logMailError($e->getMessage(), $this->company->clients()->first());
-
-        } catch (\Symfony\Component\Mime\Exception\RfcComplianceException $e) {
-            nlog("Mailer failed with a Logic Exception {$e->getMessage()}");
-            $this->fail();
+            
             $this->cleanUpMailers();
             $this->logMailError($e->getMessage(), $this->company->clients()->first());
             return;
-        } catch (\Symfony\Component\Mime\Exception\LogicException $e) {
+
+        } catch (\Symfony\Component\Mime\Exception\RfcComplianceException $e) {
             nlog("Mailer failed with a Logic Exception {$e->getMessage()}");
-            $this->fail();
             $this->cleanUpMailers();
             $this->logMailError($e->getMessage(), $this->company->clients()->first());
+            
+            return;
+        } catch (\Symfony\Component\Mime\Exception\LogicException $e) {
+            nlog("Mailer failed with a Logic Exception {$e->getMessage()}");
+            $this->cleanUpMailers();
+            $this->logMailError($e->getMessage(), $this->company->clients()->first());
+            
             return;
         } catch (\Google\Service\Exception $e) {
 
@@ -217,11 +222,10 @@ class NinjaMailerJob implements ShouldQueue
 
             nlog("Mailer failed with an Error Exception {$e->getMessage()}");
             $message = "Attachment size is too large.";
-            $this->fail();
             $this->logMailError($message, $this->company->clients()->first());
             $this->entityEmailFailed($message);
             $this->cleanUpMailers();
-
+            
             return;
 
         } catch (\Exception $e) {
@@ -236,7 +240,6 @@ class NinjaMailerJob implements ShouldQueue
             if (stripos($e->getMessage(), 'code 300') !== false || stripos($e->getMessage(), 'code 413') !== false) {
                 $message = "Either Attachment too large, or recipient has been suppressed.";
 
-                $this->fail();
                 $this->logMailError($e->getMessage(), $this->company->clients()->first());
 
                 if ($this->nmo->entity) {
@@ -244,7 +247,7 @@ class NinjaMailerJob implements ShouldQueue
                 }
 
                 $this->cleanUpMailers();
-
+            
                 return;
             }
 
@@ -275,10 +278,9 @@ class NinjaMailerJob implements ShouldQueue
                     $message = "Unknown issue sending via Postmark, please try again later.";
                 }
 
-                $this->fail();
                 $this->entityEmailFailed($message);
                 $this->cleanUpMailers();
-
+            
                 return;
             }
 
@@ -383,7 +385,7 @@ class NinjaMailerJob implements ShouldQueue
             } catch (\Throwable $e) {
 
                 nlog("problem switching outlook driver - hosted {$email}");
-                nlog($dns);
+
                 nlog($e->getMessage());
             }
         }

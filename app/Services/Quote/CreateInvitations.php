@@ -49,7 +49,7 @@ class CreateInvitations
                 ->withTrashed()
                 ->first();
 
-            if (! $invitation && $contact->send_email) {
+            if (! $invitation && $contact->send_email && ! $contact->cc_only) {
                 try {
                     $ii = QuoteInvitationFactory::create($this->quote->company_id, $this->quote->user_id);
                     $ii->key = $this->createDbHash($this->quote->company->db);
@@ -60,7 +60,7 @@ class CreateInvitations
                 } catch (\Illuminate\Database\QueryException $e) {
                     nlog("Duplicate invitation for quote {$this->quote->id} contact {$contact->id}: " . $e->getMessage());
                 }
-            } elseif ($invitation && ! $contact->send_email) {
+            } elseif ($invitation && (! $contact->send_email || $contact->cc_only)) {
                 $invitation->delete();
             }
         });
@@ -96,9 +96,9 @@ class CreateInvitations
             }
         }
 
-        if($this->quote->invitations()->where('can_sign', true)->count() == 0){
-            
-            $ii = $this->quote->invitations()->whereHas('contact', function ($q){
+        if ($this->quote->invitations()->where('can_sign', true)->count() == 0) {
+
+            $ii = $this->quote->invitations()->whereHas('contact', function ($q) {
                 $q->where('is_primary', true);
             })->first() ?? $this->quote->invitations()->first();
 

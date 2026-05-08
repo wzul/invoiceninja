@@ -33,15 +33,15 @@ class CreateInvitations extends AbstractService
         if ($contacts->count() == 0) {
             $this->createBlankContact();
         }
-        
-        $this->invoice->client->contacts()->each(function ($contact) {
+
+        $this->invoice->client->contacts()->each(function (\App\Models\ClientContact $contact) {
             $invitation = InvoiceInvitation::query()->where('company_id', $this->invoice->company_id)
                                         ->where('client_contact_id', $contact->id)
                                         ->where('invoice_id', $this->invoice->id)
                                         ->withTrashed()
                                         ->first();
 
-            if (! $invitation && $contact->send_email) {
+            if (! $invitation && $contact->send_email && ! $contact->cc_only) {
                 try {
                     $ii = InvoiceInvitationFactory::create($this->invoice->company_id, $this->invoice->user_id);
                     $ii->key = $this->createDbHash($this->invoice->company->db);
@@ -52,7 +52,7 @@ class CreateInvitations extends AbstractService
                 } catch (\Illuminate\Database\QueryException $e) {
                     nlog("Duplicate invitation for invoice {$this->invoice->id} contact {$contact->id}: " . $e->getMessage());
                 }
-            } elseif ($invitation && ! $contact->send_email) {
+            } elseif ($invitation && (! $contact->send_email || $contact->cc_only)) {
                 $invitation->delete();
             }
         });
@@ -88,9 +88,9 @@ class CreateInvitations extends AbstractService
             }
         }
 
-        if($this->invoice->invitations()->where('can_sign', true)->count() == 0){
-            
-            $ii = $this->invoice->invitations()->whereHas('contact', function ($q){
+        if ($this->invoice->invitations()->where('can_sign', true)->count() == 0) {
+
+            $ii = $this->invoice->invitations()->whereHas('contact', function ($q) {
                 $q->where('is_primary', true);
             })->first() ?? $this->invoice->invitations()->first();
 

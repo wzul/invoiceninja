@@ -195,6 +195,17 @@ class ExpenseFilters extends QueryFilters
         return $this->builder->whereIn('category_id', $categories_keys);
     }
 
+    public function payment_type(string $payment_type = ''): Builder
+    {
+        $payment_types_exploded = explode(",", $payment_type);
+
+        if (empty($payment_type) || count(array_filter($payment_types_exploded)) == 0) {
+            return $this->builder;
+        }
+
+        return $this->builder->whereIn('payment_type_id', $payment_types_exploded);
+    }
+
     public function amount(string $amount = ''): Builder
     {
         if (strlen($amount) == 0) {
@@ -323,11 +334,18 @@ class ExpenseFilters extends QueryFilters
                     ->orderByRaw('ISNULL(payment_date), payment_date ' . $sort_col[1]);
         }
 
+        if ($sort_col[0] == 'payment_type_id' && in_array($sort_col[1], ['asc', 'desc'])) {
+            return $this->builder
+                    ->orderByRaw('ISNULL(payment_type_id)')
+                    ->orderBy(\App\Models\PaymentType::select('name')
+                    ->whereColumn('payment_types.id', 'expenses.payment_type_id'), $sort_col[1]);
+        }
+
         if ($sort_col[0] == 'number') {
             return $this->builder->orderByRaw("REGEXP_REPLACE(number,'[^0-9]+','')+0 " . $dir);
         }
 
-        if (is_array($sort_col) && in_array($sort_col[1], ['asc', 'desc']) && in_array($sort_col[0], ['amount', 'public_notes', 'date', 'id_number', 'custom_value1', 'custom_value2', 'custom_value3', 'custom_value4'])) {
+        if (in_array($sort_col[1], ['asc', 'desc']) && in_array($sort_col[0], ['amount', 'public_notes', 'date', 'id_number', 'custom_value1', 'custom_value2', 'custom_value3', 'custom_value4'])) {
             return $this->builder->orderBy($sort_col[0], $sort_col[1]);
         }
 

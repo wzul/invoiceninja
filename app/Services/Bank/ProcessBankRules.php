@@ -59,27 +59,21 @@ class ProcessBankRules extends AbstractService
 
     private function matchCredit()
     {
-        // First try simple invoice number match in description
-        $this->invoices = Invoice::query()
-                                ->withTrashed()
-                                ->where('company_id', $this->bank_transaction->company_id)
-                                ->whereIn('status_id', [1,2,3])
-                                ->where('is_deleted', 0)
-                                ->get();
 
-        $invoice = $this->invoices->first(function ($value, $key) {
-            return str_contains($this->bank_transaction->description, $value->number) || str_contains(str_replace("\n", "", $this->bank_transaction->description), $value->number);
-        });
-
-        if ($invoice) {
-            $this->bank_transaction->invoice_ids = $invoice->hashed_id;
-            $this->bank_transaction->status_id = BankTransaction::STATUS_MATCHED;
-            $this->bank_transaction->save();
-            return;
-        }
 
         // Process credit rules
         $this->credit_rules = $this->bank_transaction->company->credit_rules();
+
+        if($this->credit_rules->count() == 0) {
+            return;
+        }
+
+        $this->invoices = Invoice::query()
+                        ->withTrashed()
+                        ->where('company_id', $this->bank_transaction->company_id)
+                        ->whereIn('status_id', [1,2,3])
+                        ->where('is_deleted', 0)
+                        ->get();                        
 
         foreach ($this->credit_rules as $bank_transaction_rule) {
             if (!is_array($bank_transaction_rule['rules'])) {
@@ -105,7 +99,7 @@ class ProcessBankRules extends AbstractService
                 $matched = false;
 
                 // Use match expression to handle each search key
-                match($rule['value']) {
+                match ($rule['value']) {
                     '$invoice.number' => $matched = $this->searchInvoiceNumber($invoiceNumber, $rule),
                     '$invoice.po_number' => $matched = $this->searchInvoicePONumber($invoicePONumbers, $rule),
                     '$invoice.amount' => $matched = $this->searchInvoiceAmount($invoiceAmounts, $rule),
@@ -134,8 +128,8 @@ class ProcessBankRules extends AbstractService
             }
 
             // Check if rule criteria met - NOW OUTSIDE THE INNER FOREACH LOOP
-            if (($bank_transaction_rule['matches_on_all'] && ($matches == $rule_count)) ||
-                (!$bank_transaction_rule['matches_on_all'] && $matches > 0)) {
+            if (($bank_transaction_rule['matches_on_all'] && ($matches == $rule_count))
+                || (!$bank_transaction_rule['matches_on_all'] && $matches > 0)) {
 
                 // Determine which combination succeeded and link payment/invoice
                 $invoice_ids = null;
@@ -285,6 +279,18 @@ class ProcessBankRules extends AbstractService
 
             foreach ($bank_transaction_rule['rules'] as $rule) {
 
+                if ($rule['search_key'] == 'participant') {
+                    if ($this->matchStringOperator($this->bank_transaction->participant ?? '', $rule['value'] ?? '', $rule['operator'] ?? '')) {
+                        $matches++;
+                    }
+                }
+
+                if ($rule['search_key'] == 'participant_name') {
+                    if ($this->matchStringOperator($this->bank_transaction->participant_name ?? '', $rule['value'] ?? '', $rule['operator'] ?? '')) {
+                        $matches++;
+                    }
+                }
+
                 if ($rule['search_key'] == 'description') {
                     if ($this->matchStringOperator($this->bank_transaction->description ?? '', $rule['value'] ?? '', $rule['operator'] ?? '')) {
                         $matches++;
@@ -399,15 +405,75 @@ class ProcessBankRules extends AbstractService
             return $invoiceNumber !== false;
         }
 
-        $invoiceNumber = $this->invoices->first(function ($value) use ($rule) {
-            return $this->matchStringOperator(
-                $this->bank_transaction->description,
-                $value->number,
-                $rule['operator']
-            );
-        });
+        $description = $this->bank_transaction->description ?? '';
+        $operator = $rule['operator'] ?? 'contains';
+
+        $invoiceNumber = $this->invoices
+            ->filter(function ($invoice) use ($description, $operator) {
+                if (empty($invoice->number) || mb_strlen($invoice->number) < 2) {
+                    return false;
+                }
+
+                return $this->matchInvoiceNumberOperator($description, $invoice->number, $operator);
+            })
+            ->sortByDesc(function ($invoice) {
+                return mb_strlen($invoice->number);
+            })
+            ->first();
 
         return $invoiceNumber !== null;
+    }
+
+    private function canonicalizeForComparison(string $value): string
+    {
+        if ($value === '') {
+            return '';
+        }
+        if (! mb_check_encoding($value, 'UTF-8')) {
+            $value = mb_convert_encoding($value, 'UTF-8', 'UTF-8');
+        }
+        if (class_exists(\Normalizer::class)) {
+            $nfc = \Normalizer::normalize($value, \Normalizer::FORM_C);
+            if ($nfc !== false) {
+                $value = $nfc;
+            }
+        }
+        $value = preg_replace('/\p{Pd}/u', '-', $value) ?? $value;
+
+        // NBSP, ZWSP, ZWNJ, ZWJ, UTF-8 BOM → ASCII space
+        $value = str_replace(
+            ["\xC2\xA0", "\xE2\x80\x8B", "\xE2\x80\x8C", "\xE2\x80\x8D", "\xEF\xBB\xBF"],
+            ' ',
+            $value
+        );
+        $value = str_replace(["\r\n", "\r", "\n", "\t", "\v", "\f"], ' ', $value);
+        // Any run of Unicode “separator” characters → single ASCII space
+        $value = preg_replace('/\p{Z}+/u', ' ', $value);
+        if ($value === null) {
+            $value = '';
+        }
+        $value = trim($value);
+        return mb_strtolower($value, 'UTF-8');
+    }
+
+    private function matchInvoiceNumberOperator(string $description, string $invoiceNumber, string $operator): bool
+    {
+        $normalizedDescription = $this->canonicalizeForComparison($description);
+        $invoiceNumber = $this->canonicalizeForComparison($invoiceNumber);
+        $quotedInvoiceNumber = preg_quote($invoiceNumber, '/');
+
+        return match ($operator) {
+            'is' => $normalizedDescription === $invoiceNumber,
+            'starts_with' => preg_match(
+                '/^' . $quotedInvoiceNumber . '(?![a-z0-9])/iu',
+                $normalizedDescription
+            ) === 1,
+            'contains' => preg_match(
+                '/(?<![a-z0-9])' . $quotedInvoiceNumber . '(?![a-z0-9])/iu',
+                $normalizedDescription
+            ) === 1,
+            default => false,
+        };
     }
 
     private function searchInvoicePONumber(&$invoicePONumbers, array $rule): bool
@@ -616,9 +682,9 @@ class ProcessBankRules extends AbstractService
 
     private function matchPaymentAndClient($payments, $clients): ?int
     {
-        foreach($payments as $payment) {
-            foreach($clients as $client) {
-                if($payment->client_id == $client->id) {
+        foreach ($payments as $payment) {
+            foreach ($clients as $client) {
+                if ($payment->client_id == $client->id) {
                     return $payment->id;
                 }
             }
@@ -629,9 +695,9 @@ class ProcessBankRules extends AbstractService
 
     private function matchInvoiceAndClient($invoices, $clients): ?string
     {
-        foreach($invoices as $invoice) {
-            foreach($clients as $client) {
-                if($invoice->client_id == $client->id) {
+        foreach ($invoices as $invoice) {
+            foreach ($clients as $client) {
+                if ($invoice->client_id == $client->id) {
                     return $invoice->hashed_id;
                 }
             }

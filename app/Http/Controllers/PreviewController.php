@@ -193,12 +193,18 @@ class PreviewController extends BaseController
                 $request->input('entity') . "s" => [$entity_obj],
             ]);
 
-            $ps->boot()
-            ->designer
-            ->buildFromPartials($request->design['design']);
+            $requestDesign = $request->design['design'];
 
-            $ps->builder
-            ->build();
+            $ps->bootForPreviewDesign($requestDesign);
+
+            if (isset($requestDesign['blocks'])) {
+                $ps->setJsonDesignHtml(
+                    (new \App\Services\Pdf\JsonDesignService($ps, $requestDesign))->build()
+                );
+            } else {
+                $ps->designer->buildFromPartials($requestDesign);
+                $ps->builder->build();
+            }
 
             if ($request->query('html') == 'true') {
                 return $ps->getHtml();
@@ -326,18 +332,28 @@ class PreviewController extends BaseController
             return response()->json(['message' => 'Invalid custom design object'], 400);
         }
 
+        $requestDesign = $design_object['design'] ?? null;
+
+        if (! is_array($requestDesign)) {
+            return response()->json(['message' => 'Invalid custom design object'], 400);
+        }
+
         $ps = new PdfService($invitation, 'product', [
             'client' => $invitation->client ?? false,
             'vendor' => $invitation->vendor ?? false,
             "{$entity_string}s" => [$invitation->{$entity_string}],
         ]);
 
-        $ps->boot()
-        ->designer
-        ->buildFromPartials($design_object['design']);
+        $ps->bootForPreviewDesign($requestDesign);
 
-        $ps->builder
-        ->build();
+        if (isset($requestDesign['blocks'])) {
+            $ps->setJsonDesignHtml(
+                (new \App\Services\Pdf\JsonDesignService($ps, $requestDesign))->build()
+            );
+        } else {
+            $ps->designer->buildFromPartials($requestDesign);
+            $ps->builder->build();
+        }
 
 
         if (request()->query('html') == 'true') {
