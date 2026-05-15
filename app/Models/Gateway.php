@@ -25,7 +25,7 @@ namespace App\Models;
  * @property bool $is_offsite
  * @property bool $is_secure
  * @property object|null|string $fields
- * @property string $default_gateway_type_id
+ * @property int $default_gateway_type_id
  * @property int|null $created_at
  * @property int|null $updated_at
  * @property-read mixed $options
@@ -111,7 +111,7 @@ class Gateway extends StaticModel
         } elseif ($this->id == 65) {
             $link = 'https://help.blockonomics.co/a/solutions/articles/33000291849';
         } elseif ($this->id == 67) {
-            $link = 'https://notes.chip-in.asia/s/faq/p/Qwsatm6PeN';
+            $link = 'https://payware.eu';
         }
 
         return $link;
@@ -268,8 +268,8 @@ class Gateway extends StaticModel
                 ]; //LawPay
             case 67:
                 return [
-                    GatewayType::HOSTED_PAGE => ['refund' => true, 'token_billing' => true, 'webhooks' => []],
-                ];
+                    GatewayType::MOBILE_PAYMENT => ['refund' => false, 'token_billing' => false, 'webhooks' => ['CONFIRMED', 'DECLINED', 'FAILED', 'CANCELLED', 'EXPIRED']],
+                ]; //payware
             default:
                 return [];
         }
