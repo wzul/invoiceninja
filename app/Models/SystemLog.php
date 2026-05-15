@@ -345,8 +345,6 @@ class SystemLog extends Model
                 return 'WePay';
             case self::TYPE_PAYFAST:
                 return "Payfast";
-            case self::TYPE_PAYWARE:
-                return "Payware";
             case self::TYPE_CHIPINASIA:
                 return "CHIP";
             case self::TYPE_FORTE:
