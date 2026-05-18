@@ -266,6 +266,18 @@ class ChipInAsiaPaymentDriver extends BaseDriver
         }
 
         $this->setPaymentHash($payment_hash);
+
+        $purchaseId = $purchase['id'] ?? $purchase['purchase_id'] ?? '';
+        if ($purchaseId) {
+            $existingPayment = Payment::where('transaction_reference', (string) $purchaseId)
+                ->where('client_id', $this->client->id)
+                ->first();
+
+            if ($existingPayment) {
+                return response()->json([], 200);
+            }
+        }
+
         $this->payment_method->createPaymentFromCallback($purchase);
 
         return response()->json([], 200);

@@ -83,6 +83,15 @@ class Hosted implements MethodInterface, LivewireMethodInterface
             throw new PaymentFailed('Invalid return from payment gateway. Please contact support.');
         }
 
+        // If webhook already created the payment, redirect to it instead of recreating.
+        $existingPayment = Payment::where('transaction_reference', $purchaseId)
+            ->where('client_id', $this->driver->client->id)
+            ->first();
+
+        if ($existingPayment) {
+            return redirect()->route('client.payments.show', ['payment' => $this->driver->encodePrimaryKey($existingPayment->id)]);
+        }
+
         $purchase = $this->getPurchase($purchaseId);
 
         if (! $purchase) {
@@ -419,6 +428,7 @@ class Hosted implements MethodInterface, LivewireMethodInterface
             'amount' => $amount,
             'payment_type' => PaymentType::HOSTED_PAGE,
             'transaction_reference' => (string) $purchaseId,
+            'idempotency_key' => substr((string) $purchaseId . '_' . $this->driver->payment_hash->hash, 0, 64),
         ];
 
         $payment = $this->driver->createPayment($data, Payment::STATUS_COMPLETED);
