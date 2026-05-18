@@ -102,15 +102,6 @@ class ChipInAsiaPaymentDriver extends BaseDriver
         $this->init();
         $purchaseId = $payment->transaction_reference;
         if (empty($purchaseId)) {
-            SystemLogger::dispatch(
-                'CHIP refund: missing transaction_reference (purchase id) on payment',
-                SystemLog::CATEGORY_GATEWAY_RESPONSE,
-                SystemLog::EVENT_GATEWAY_FAILURE,
-                SystemLog::TYPE_CHIPINASIA,
-                $this->client,
-                $this->client->company,
-            );
-
             return [
                 'transaction_reference' => null,
                 'transaction_response' => '',
